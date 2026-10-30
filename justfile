@@ -62,6 +62,8 @@ run: bundle quit
 install: bundle quit
     rm -rf /Applications/linkboy.app
     cp -R {{app}} /Applications/linkboy.app
+    @# the commit this build came from: lets a later release (lockstep.sh) tell whether it is newer before replacing it
+    xattr -w com.lockyc.build-commit "$(git rev-parse HEAD)$(git status --porcelain | grep -q . && echo -dirty)" /Applications/linkboy.app
     @just launch /Applications/linkboy.app
 
 # Quits any running Linkboy, force-killing one still alive after 3s.
