@@ -10,9 +10,7 @@ let package = Package(
     ],
     targets: [
         .target(name: "LinkboyCore", dependencies: [.product(name: "GRDB", package: "GRDB.swift")]),
-        // FocusProbe.js goes into the app bundle's Resources through `just bundle`, not a SwiftPM resource bundle.
-        .executableTarget(name: "Linkboy", dependencies: ["LinkboyCore", .product(name: "Sparkle", package: "Sparkle")],
-                          exclude: ["FocusProbe.js"]),
+        .executableTarget(name: "Linkboy", dependencies: ["LinkboyCore", .product(name: "Sparkle", package: "Sparkle")]),
         .testTarget(name: "LinkboyCoreTests", dependencies: ["LinkboyCore"]),
     ],
     swiftLanguageModes: [.v5]

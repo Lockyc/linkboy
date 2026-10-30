@@ -31,7 +31,6 @@ bundle:
     mkdir -p {{app}}/Contents/MacOS {{app}}/Contents/Resources {{app}}/Contents/Frameworks
     cp "$bin/Linkboy" {{app}}/Contents/MacOS/Linkboy
     cp Support/AppIcon.icns {{app}}/Contents/Resources/AppIcon.icns
-    cp Sources/Linkboy/FocusProbe.js {{app}}/Contents/Resources/FocusProbe.js
     install_name_tool -add_rpath @executable_path/../Frameworks {{app}}/Contents/MacOS/Linkboy
     ditto "$bin/Sparkle.framework" {{app}}/Contents/Frameworks/Sparkle.framework
     cp {{info_plist}} {{app}}/Contents/Info.plist

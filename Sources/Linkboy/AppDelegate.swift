@@ -1,7 +1,7 @@
 import AppKit
 import LinkboyCore
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let prefs = PreferencesModel()
     private var setup: SetupWindowController?
     private var main: MainWindowController?
@@ -90,8 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         a.runModal()
     }
 
-    /// The Go menu shows Next and Previous's bound keys. The main window's key monitor performs them before the
-    /// menu sees the key, so they also work while a web page has focus.
+    /// The Go menu shows Next and Previous's bound keys; `menuHasKeyEquivalent` keeps them display-only.
     private func showBindings(_ bindings: KeyBindings) {
         for (item, action) in [(nextItem, Action.next), (previousItem, .previous)] {
             let combo = bindings.combo(for: action)
@@ -99,6 +98,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.keyEquivalentModifierMask = combo?.modifierFlags ?? []
         }
     }
+
+    /// The Go menu's key equivalents are labels only: its keys act through the main window's key monitor alone,
+    /// which knows when they must not (another window, a text field, typing in a page).
+    func menuHasKeyEquivalent(_ menu: NSMenu, for event: NSEvent, target: AutoreleasingUnsafeMutablePointer<AnyObject?>,
+                              action: UnsafeMutablePointer<Selector?>) -> Bool { false }
 
     private func makeMainMenu() -> NSMenu {
         let main = NSMenu()
@@ -139,13 +143,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Paste", #selector(NSText.paste(_:)), "v"),
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
+        let back = MainWindowController.backKey, forward = MainWindowController.forwardKey
         add("Go", [
             nextItem,
             previousItem,
             .separator(),
-            item("Back", #selector(MainWindowController.historyBack(_:)), "["),
-            item("Forward", #selector(MainWindowController.historyForward(_:)), "]"),
+            item("Back", #selector(MainWindowController.historyBack(_:)), back.key, back.modifierFlags),
+            item("Forward", #selector(MainWindowController.historyForward(_:)), forward.key, forward.modifierFlags),
         ])
+        main.items.last?.submenu?.delegate = self
         showBindings(prefs.value.bindings)
         add("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),

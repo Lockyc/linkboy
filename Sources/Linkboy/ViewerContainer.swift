@@ -14,6 +14,10 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
 
     /// Called with the page's share of the side-by-side split when the user drags its divider.
     var onSplitFractionChange: ((Double) -> Void)?
+    /// A bound key pressed in either viewer's page outside a text control.
+    var onPageKey: ((KeyCombo) -> Void)? {
+        didSet { [pageViewer, commentsViewer].forEach { $0.onPageKey = onPageKey } }
+    }
     var splitFraction: Double = 0.5
 
     let pageViewer = WebViewer()
@@ -60,7 +64,7 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
             let movesFocus = hidden.containsFirstResponder
             pageViewer.isHidden = showComments
             commentsSlot.isHidden = !showComments
-            if movesFocus { window?.makeFirstResponder(shown.webView) }
+            if movesFocus { shown.takeFocus() }
         case .sideBySide:
             cover.isHidden = true
             pageViewer.isHidden = false
@@ -87,6 +91,9 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
         default: shownPane == .comments ? commentsViewer : pageViewer
         }
     }
+
+    /// A page (not just a viewer awaiting its page) holds keyboard focus.
+    var pageHasKeyboard: Bool { pageViewer.pageHasKeyboard || commentsViewer.pageHasKeyboard }
 
     /// The visible viewer under a point in window coordinates, if any.
     func viewer(atWindowPoint point: NSPoint) -> WebViewer? {

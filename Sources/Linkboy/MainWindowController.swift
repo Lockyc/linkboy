@@ -168,6 +168,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     private func apply(_ p: Preferences) {
         list.apply(fontSize: p.listFontSize, density: p.density)
+        WebViewer.pageKeys = p.bindings.pageKeys
         viewer.splitFraction = p.splitFraction
         if abs(listColumn.frame.width - p.listWidth) > 0.5 {
             settingSplit = true
@@ -275,10 +276,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     // MARK: - Keys and mouse
 
-    /// Reading keys are caught before the first responder sees them, so they work while a web page has focus.
-    /// They never fire in another window, while one of the window's own text fields is being edited, or (for
-    /// unmodified keys) while a text field in the page has focus.
+    /// The only route for reading keys and ⌘[ / ⌘] (the Go menu shows them but never acts on them). Keys are caught
+    /// before the first responder sees them, but never in another window or while one of the window's own text
+    /// fields is being edited. While a page has keyboard focus its unmodified keys go to the page, whose
+    /// `FocusProbe` listener sends bound ones back through `routePageKey` when no text control has focus.
     private func installMonitors() {
+        viewer.onPageKey = { [weak self] in self?.routePageKey($0) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in self?.routeKey(e) ?? e }) {
             monitors.append(m)
         }
@@ -290,20 +293,32 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private func routeKey(_ event: NSEvent) -> NSEvent? {
         guard let window, window.isKeyWindow, event.window === window,
               !(window.firstResponder is NSText || window.firstResponder is NSTextField),
-              let combo = KeyCombo(event: event),
-              let action = KeyRouter.route(combo, editableFocused: viewer.focusedViewer.editableFocused,
-                                           bindings: prefs.value.bindings)
+              let combo = KeyCombo(event: event)
+        else { return event }
+        if combo == Self.backKey { historyBack(nil); return nil }
+        if combo == Self.forwardKey { historyForward(nil); return nil }
+        guard let action = KeyRouter.route(combo, editableFocused: viewer.pageHasKeyboard, bindings: prefs.value.bindings)
         else { return event }
         perform(action)
         return nil
     }
 
-    /// Mouse buttons 4 and 5 (side buttons) go back and forward in the viewer under the pointer. WebKit never
-    /// hands them to the page, so they're handled here.
+    static let backKey = KeyCombo(key: "[", modifiers: [.command])
+    static let forwardKey = KeyCombo(key: "]", modifiers: [.command])
+
+    /// A key the page has already found bound and outside any text control.
+    private func routePageKey(_ combo: KeyCombo) {
+        guard window?.isKeyWindow == true,
+              let action = KeyRouter.route(combo, editableFocused: false, bindings: prefs.value.bindings) else { return }
+        perform(action)
+    }
+
+    /// Mouse buttons 4 and 5 (side buttons) go back and forward in the viewer under the pointer, and do nothing
+    /// anywhere else. WebKit never hands them to the page, so they're handled here.
     private func routeMouse(_ event: NSEvent) -> NSEvent? {
-        guard event.window === window, event.buttonNumber == 3 || event.buttonNumber == 4 else { return event }
-        let target = viewer.viewer(atWindowPoint: event.locationInWindow) ?? viewer.focusedViewer
-        if event.buttonNumber == 3 { target.webView.goBack() } else { target.webView.goForward() }
+        guard event.window === window, event.buttonNumber == 3 || event.buttonNumber == 4,
+              let target = viewer.viewer(atWindowPoint: event.locationInWindow) else { return event }
+        if event.buttonNumber == 3 { target.goBack() } else { target.goForward() }
         return nil
     }
 
@@ -311,15 +326,26 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         switch action {
         case .next: goNext(nil)
         case .previous: goPrevious(nil)
-        case .togglePane: if prefs.value.layout == .single { showPane(pane == .page ? .comments : .page) }
+        case .togglePane: togglePane()
         case .star: toggleStar()
         case .openInBrowser: openInBrowser()
         }
     }
 
-    @objc func historyBack(_ sender: Any?) { viewer.focusedViewer.webView.goBack() }
+    /// Does what clicking the other segment of the Page/Comments control would, and nothing while that is disabled.
+    private func togglePane() {
+        let s = toolbarState()
+        guard s.pane == nil else { return }
+        if pane == .page {
+            if s.comments == nil { showPane(.comments) }
+        } else {
+            showPane(.page)
+        }
+    }
 
-    @objc func historyForward(_ sender: Any?) { viewer.focusedViewer.webView.goForward() }
+    @objc func historyBack(_ sender: Any?) { viewer.focusedViewer.goBack() }
+
+    @objc func historyForward(_ sender: Any?) { viewer.focusedViewer.goForward() }
 
     // MARK: - Reading
 
@@ -504,8 +530,14 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         switch item.action {
         case #selector(goNext(_:)): item.toolTip = s.next; return s.next == nil
         case #selector(goPrevious(_:)): item.toolTip = s.previous; return s.previous == nil
-        case #selector(historyBack(_:)): return viewer.focusedViewer.webView.canGoBack
-        case #selector(historyForward(_:)): return viewer.focusedViewer.webView.canGoForward
+        case #selector(historyBack(_:)):
+            let ok = viewer.focusedViewer.canGoBack
+            item.toolTip = ok ? nil : "No earlier page in this pane"
+            return ok
+        case #selector(historyForward(_:)):
+            let ok = viewer.focusedViewer.canGoForward
+            item.toolTip = ok ? nil : "No later page in this pane"
+            return ok
         default: return true
         }
     }
