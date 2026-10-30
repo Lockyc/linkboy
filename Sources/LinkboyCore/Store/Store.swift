@@ -139,6 +139,14 @@ public final class Store: Sendable {
         }
     }
 
+    /// Empties the cache: entries, queued changes and the last-sync mark. For switching to another server,
+    /// whose entry ids mean different entries.
+    public func reset() throws {
+        try pool.write { db in
+            try db.execute(sql: "DELETE FROM entry; DELETE FROM pendingChange; DELETE FROM meta")
+        }
+    }
+
     private static func columns(_ c: PendingChange) -> (Int64, String, String) {
         switch c {
         case .status(let id, let s): return (id, "status", s.rawValue)

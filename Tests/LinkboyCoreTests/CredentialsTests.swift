@@ -28,6 +28,15 @@ final class CredentialsTests: XCTestCase {
         XCTAssertNil(try CredentialStore.load())
     }
 
+    func testSaveOverwritesSameServerAndLeavesOneItem() throws {
+        let url = URL(string: "https://reader.example.com")!
+        try CredentialStore.save(Credentials(baseURL: url, apiKey: "old"))
+        try CredentialStore.save(Credentials(baseURL: url, apiKey: "new"))
+        XCTAssertEqual(try CredentialStore.load(), Credentials(baseURL: url, apiKey: "new"))
+        try CredentialStore.save(Credentials(baseURL: URL(string: "https://other.example.com")!, apiKey: "k"))
+        XCTAssertEqual(try CredentialStore.itemCount(), 1)
+    }
+
     func testServerURLNormalisation() {
         XCTAssertEqual(Credentials.serverURL(from: " https://reader.example.com/ "), URL(string: "https://reader.example.com"))
         XCTAssertEqual(Credentials.serverURL(from: "http://reader.example.com:8080/miniflux/?a=1#top"),

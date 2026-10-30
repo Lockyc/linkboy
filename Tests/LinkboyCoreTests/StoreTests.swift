@@ -128,4 +128,16 @@ final class StoreTests: XCTestCase {
         try store.setLastSync(d)
         XCTAssertEqual(try makeStore().lastSync(), d)
     }
+
+    func testResetClearsEntriesQueueAndLastSync() throws {
+        let store = try makeStore()
+        try store.upsert([entry(1), entry(2)])
+        try store.enqueue([.status(id: 1, .read), .starred(id: 2, true)])
+        try store.setLastSync(Date(timeIntervalSince1970: 1_700_000_000))
+        try store.reset()
+        XCTAssertEqual(try store.entries(ids: [1, 2]), [])
+        XCTAssertEqual(try store.entryIDs(matching: .unread(category: nil, feed: nil)), [])
+        XCTAssertEqual(try store.pending(), [])
+        XCTAssertNil(try store.lastSync())
+    }
 }

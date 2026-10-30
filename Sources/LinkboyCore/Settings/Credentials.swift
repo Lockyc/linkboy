@@ -48,14 +48,37 @@ public enum CredentialStore {
         return Credentials(baseURL: url, apiKey: key)
     }
 
-    /// Replaces any saved login.
+    /// Replaces any saved login. The new item is written before any other server's item is removed, so a
+    /// failed save leaves the previous login in place.
     public static func save(_ c: Credentials) throws {
-        try clear()
-        var item = baseQuery
-        item[kSecAttrAccount as String] = c.baseURL.absoluteString
-        item[kSecValueData as String] = Data(c.apiKey.utf8)
-        let status = SecItemAdd(item as CFDictionary, nil)
+        let account = c.baseURL.absoluteString
+        var match = baseQuery
+        match[kSecAttrAccount as String] = account
+        let secret = [kSecValueData as String: Data(c.apiKey.utf8)]
+        var status = SecItemUpdate(match as CFDictionary, secret as CFDictionary)
+        if status == errSecItemNotFound {
+            status = SecItemAdd(match.merging(secret) { $1 } as CFDictionary, nil)
+        }
         guard status == errSecSuccess else { throw CredentialError.keychain(status) }
+        for other in try accounts() where other != account {
+            var stale = baseQuery
+            stale[kSecAttrAccount as String] = other
+            let s = SecItemDelete(stale as CFDictionary)
+            guard s == errSecSuccess || s == errSecItemNotFound else { throw CredentialError.keychain(s) }
+        }
+    }
+
+    static func itemCount() throws -> Int { try accounts().count }
+
+    private static func accounts() throws -> [String] {
+        var query = baseQuery
+        query[kSecMatchLimit as String] = kSecMatchLimitAll
+        query[kSecReturnAttributes as String] = true
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return [] }
+        guard status == errSecSuccess else { throw CredentialError.keychain(status) }
+        return (result as? [[String: Any]] ?? []).compactMap { $0[kSecAttrAccount as String] as? String }
     }
 
     public static func clear() throws {
