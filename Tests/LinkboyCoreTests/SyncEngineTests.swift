@@ -288,4 +288,45 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(api.statusCalls.map(\.1), [[1]])
         XCTAssertEqual(try store.pending(), [])
     }
+
+    func testShutdownWaitsForInFlightSyncThenIgnoresEverything() async throws {
+        let store = try makeStore(), api = FakeAPI(), gate = Gate()
+        api.gate = gate
+        try store.upsert([entry(1), entry(2)])
+        let engine = SyncEngine(api: api, store: store)
+        var it = engine.events.makeAsyncIterator()
+        await engine.markRead([1])
+        await gate.waitForArrival()               // the kicked sync is held inside setStatus
+        let returned = Flag()
+        let shutdown = Task {
+            await engine.shutdown()
+            returned.set()
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertFalse(returned.value, "shutdown returned while a sync was still running")
+        await gate.open()
+        await shutdown.value
+
+        let calls = api.calls, statusCalls = api.statusCalls.count, pending = try store.pending()
+        await engine.markRead([2])
+        await engine.setStarred(true, id: 2)
+        _ = await engine.syncNow()
+        await engine.start()
+        try await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(api.calls, calls)
+        XCTAssertEqual(api.statusCalls.count, statusCalls)
+        XCTAssertEqual(try store.pending(), pending)
+        XCTAssertEqual(try store.entries(ids: [2]).first?.status, .unread)
+        XCTAssertEqual(try store.entries(ids: [2]).first?.starred, false)
+        var events: [SyncOutcome] = []
+        while let e = await it.next() { events.append(e) }   // ends: shutdown finishes the stream
+        XCTAssertEqual(events, [])
+    }
+}
+
+private final class Flag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _value = false
+    var value: Bool { lock.withLock { _value } }
+    func set() { lock.withLock { _value = true } }
 }

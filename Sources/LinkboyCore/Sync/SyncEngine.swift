@@ -24,6 +24,8 @@ public actor SyncEngine {
     private var busy = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var kickQueued = false
+    private var kickTask: Task<SyncOutcome, Never>?
+    private var isShutDown = false
 
     public init(api: MinifluxAPI, store: Store, interval: Duration = .seconds(300)) {
         self.api = api
@@ -34,7 +36,7 @@ public actor SyncEngine {
 
     /// Syncs now, then every `interval`, until `stop()`.
     public func start() {
-        guard timer == nil else { return }
+        guard timer == nil, !isShutDown else { return }
         let interval = interval
         timer = Task { [weak self] in
             while !Task.isCancelled {
@@ -49,6 +51,19 @@ public actor SyncEngine {
         timer = nil
     }
 
+    /// Retires the engine for good: cancels the timer and any background sync, waits until no sync is
+    /// running, and ends `events`. Afterwards every call is a no-op, so nothing touches the API or the store
+    /// again — the store can be wiped for another server.
+    public func shutdown() async {
+        guard !isShutDown else { return }
+        isShutDown = true
+        stop()
+        kickTask?.cancel()
+        await acquire()
+        release()
+        continuation.finish()
+    }
+
     @discardableResult
     public func syncNow() async -> SyncOutcome {
         await run(fromKick: false)
@@ -58,6 +73,7 @@ public actor SyncEngine {
     public func markUnread(_ ids: [Int64]) async { await record(.unread, ids) }
 
     public func setStarred(_ v: Bool, id: Int64) async {
+        guard !isShutDown else { return }
         do {
             try store.setStarred(v, id: id)
             try store.enqueue([.starred(id: id, v)])
@@ -71,6 +87,7 @@ public actor SyncEngine {
     // MARK: - Scheduling
 
     private func record(_ status: EntryStatus, _ ids: [Int64]) async {
+        guard !isShutDown else { return }
         do {
             try store.setStatus(status, ids: ids)
             try store.enqueue(ids.map { .status(id: $0, status) })
@@ -85,14 +102,16 @@ public actor SyncEngine {
     private func kick() {
         guard !kickQueued else { return }
         kickQueued = true
-        Task { await self.run(fromKick: true) }
+        kickTask = Task { await self.run(fromKick: true) }
     }
 
     @discardableResult
     private func run(fromKick: Bool) async -> SyncOutcome {
+        guard !isShutDown else { return .failed("Shut down") }
         await acquire()
         defer { release() }
         if fromKick { kickQueued = false }
+        guard !isShutDown else { return .failed("Shut down") }
         guard let outcome = await sync() else { return .failed("Cancelled") }
         continuation.yield(outcome)
         // A rejected key stays rejected: the timer stays off until the UI calls `start()` after re-auth.
