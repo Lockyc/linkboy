@@ -74,9 +74,11 @@ final class WebViewer: NSView, WKNavigationDelegate, WKUIDelegate {
         return responder === self || responder.isDescendant(of: self)
     }
 
-    /// The page itself holds keyboard focus, so its listener decides what unmodified keys do.
+    /// The page itself holds keyboard focus and has a committed document carrying the listener, so the listener
+    /// decides what unmodified keys do. A web view focused before anything committed (a page that failed to load
+    /// offline) has no listener, so the app's key monitor keeps routing.
     var pageHasKeyboard: Bool {
-        guard let responder = window?.firstResponder as? NSView else { return false }
+        guard committed, let responder = window?.firstResponder as? NSView else { return false }
         return responder.isDescendant(of: webView)
     }
 
@@ -107,7 +109,7 @@ final class WebViewer: NSView, WKNavigationDelegate, WKUIDelegate {
     }
 
     private static func addScripts(to controller: WKUserContentController) {
-        for source in [FocusProbe.keysScript(pageKeys), FocusProbe.listener] {
+        for source in [PageKeyScript.keys(pageKeys), PageKeyScript.listener] {
             controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false,
                                                   in: FocusProbe.world))
         }
@@ -117,7 +119,7 @@ final class WebViewer: NSView, WKNavigationDelegate, WKUIDelegate {
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         Self.addScripts(to: controller)
-        webView.evaluateJavaScript(FocusProbe.keysScript(Self.pageKeys), in: nil, in: FocusProbe.world, completionHandler: nil)
+        webView.evaluateJavaScript(PageKeyScript.keys(Self.pageKeys), in: nil, in: FocusProbe.world, completionHandler: nil)
     }
 
     /// Appended to WKWebView's own `Mozilla/5.0 (Macintosh; …) AppleWebKit/605.1.15 (KHTML, like Gecko)`, which
