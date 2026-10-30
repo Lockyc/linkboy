@@ -1,7 +1,35 @@
 import XCTest
 @testable import LinkboyCore
 
+/// Holds callers in `pass()` until `open()`; `waitForArrival()` returns once a caller is held.
+private actor Gate {
+    private var isOpen = false
+    private var arrived = 0
+    private var held: [CheckedContinuation<Void, Never>] = []
+    private var arrivalWaiter: CheckedContinuation<Void, Never>?
+
+    func pass() async {
+        arrived += 1
+        arrivalWaiter?.resume()
+        arrivalWaiter = nil
+        if isOpen { return }
+        await withCheckedContinuation { held.append($0) }
+    }
+
+    func waitForArrival() async {
+        if arrived > 0 { return }
+        await withCheckedContinuation { arrivalWaiter = $0 }
+    }
+
+    func open() {
+        isOpen = true
+        held.forEach { $0.resume() }
+        held = []
+    }
+}
+
 private final class FakeAPI: MinifluxAPI, @unchecked Sendable {
+    var gate: Gate?                               // setStatus blocks here, then throws .transport if its task was cancelled
     private let lock = NSLock()
     private var _calls: [String] = []
     private var _queries: [EntryQuery] = []
@@ -39,6 +67,8 @@ private final class FakeAPI: MinifluxAPI, @unchecked Sendable {
 
     func setStatus(_ s: EntryStatus, ids: [Int64]) async throws {
         lock.withLock { _statusCalls.append((s, ids)) }
+        await gate?.pass()
+        if gate != nil, Task.isCancelled { throw MinifluxError.transport("cancelled") }
         try record("setStatus")
     }
 
@@ -169,6 +199,81 @@ final class SyncEngineTests: XCTestCase {
         api.pages = [entry(1), entry(2), entry(3, status: .read)]
         let outcome = await SyncEngine(api: api, store: store).syncNow()
         XCTAssertEqual(outcome, .ok(newEntryIDs: [2]))
+    }
+
+    func testUnauthorizedStopsTimer() async throws {
+        let store = try makeStore(), api = FakeAPI()
+        api.errors["setStatus"] = .unauthorized
+        try store.enqueue([.status(id: 1, .read)])
+        let engine = SyncEngine(api: api, store: store, interval: .milliseconds(5))
+        var it = engine.events.makeAsyncIterator()
+        await engine.start()
+        let first = await it.next()
+        XCTAssertEqual(first, .unauthorized)
+        try await Task.sleep(for: .milliseconds(150))
+        XCTAssertEqual(api.calls, ["setStatus"])
+    }
+
+    func testStopEndsTimer() async throws {
+        let store = try makeStore(), api = FakeAPI()
+        let engine = SyncEngine(api: api, store: store, interval: .milliseconds(5))
+        var it = engine.events.makeAsyncIterator()
+        await engine.start()
+        _ = await it.next()
+        _ = await it.next()
+        await engine.stop()
+        try await Task.sleep(for: .milliseconds(100))
+        let settled = api.calls.count
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(api.calls.count, settled)
+    }
+
+    func testTimerLoopEndsWhenEngineIsDeallocated() async throws {
+        let store = try makeStore(), api = FakeAPI()
+        var engine: SyncEngine? = SyncEngine(api: api, store: store, interval: .milliseconds(5))
+        weak let weakEngine = engine
+        await engine?.start()
+        engine = nil
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertNil(weakEngine)
+    }
+
+    func testKicksDuringRunningSyncCoalesceIntoOneFollowUp() async throws {
+        let store = try makeStore(), api = FakeAPI(), gate = Gate()
+        api.gate = gate
+        try store.upsert([1, 2, 3, 4].map { entry($0) })
+        let engine = SyncEngine(api: api, store: store)
+        var it = engine.events.makeAsyncIterator()
+        await engine.markRead([1])
+        await gate.waitForArrival()               // sync 1 is now held inside setStatus
+        await engine.markRead([2])
+        await engine.markRead([3])
+        await engine.markRead([4])
+        await gate.open()
+        let e1 = await it.next(), e2 = await it.next()
+        XCTAssertEqual([e1, e2], [.ok(newEntryIDs: []), .ok(newEntryIDs: [])])
+        XCTAssertEqual(api.statusCalls.map(\.1), [[1], [2, 3, 4]])
+        XCTAssertEqual(try store.pending(), [])
+    }
+
+    func testCancelledSyncEmitsNothingAndKeepsQueue() async throws {
+        let store = try makeStore(), api = FakeAPI(), gate = Gate()
+        api.gate = gate
+        try store.enqueue([.status(id: 1, .read)])
+        let engine = SyncEngine(api: api, store: store)
+        var it = engine.events.makeAsyncIterator()
+        let task = Task { await engine.syncNow() }
+        await gate.waitForArrival()
+        task.cancel()
+        await gate.open()
+        _ = await task.value
+        XCTAssertEqual(try store.pending(), [.status(id: 1, .read)])
+        // The next event on the stream must be the follow-up sync's, proving the cancelled one emitted none.
+        let outcome = await engine.syncNow()
+        XCTAssertEqual(outcome, .ok(newEntryIDs: []))
+        let next = await it.next()
+        XCTAssertEqual(next, .ok(newEntryIDs: []))
+        XCTAssertEqual(try store.pending(), [])
     }
 
     func testMarkReadWritesStoreQueuesAndPushesInBackground() async throws {

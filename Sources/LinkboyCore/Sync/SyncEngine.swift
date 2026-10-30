@@ -38,7 +38,7 @@ public actor SyncEngine {
         let interval = interval
         timer = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.syncNow()
+                guard await self?.syncNow() != nil else { return }
                 try? await Task.sleep(for: interval)
             }
         }
@@ -95,6 +95,8 @@ public actor SyncEngine {
         if fromKick { kickQueued = false }
         guard let outcome = await sync() else { return .failed("Cancelled") }
         continuation.yield(outcome)
+        // A rejected key stays rejected: the timer stays off until the UI calls `start()` after re-auth.
+        if outcome == .unauthorized { stop() }
         return outcome
     }
 
