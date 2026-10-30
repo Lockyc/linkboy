@@ -84,7 +84,7 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func connectClicked() {
         guard let url = Credentials.serverURL(from: urlField.stringValue) else {
-            return show("Enter the server's full address, starting with https://")
+            return show("Enter the server's full address, starting with http:// or https://")
         }
         let key = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return show("Enter an API key") }

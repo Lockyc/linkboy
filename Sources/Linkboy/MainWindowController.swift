@@ -19,7 +19,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     /// nil until loaded, and when they couldn't be.
     private var categories: [CategoryRef]?
     private var categoriesLoading = false
-    private let ledger = UndoLedger()
+    private var ledger = UndoLedger()
+    /// Bumped by `attach`, so a categories reply from a previous server is dropped.
+    private var generation = 0
     private let undo = UndoManager()
 
     private let toolbar = ToolbarView()
@@ -66,18 +68,39 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// Starts syncing with `api`, replacing any previous engine.
-    func attach(api: MinifluxAPI) {
+    /// Starts syncing with `api`, replacing any previous engine. `newServer` empties the local cache first:
+    /// another server's entry ids, queued changes and last-sync mark mean nothing there.
+    func attach(api: MinifluxAPI, newServer: Bool = false) {
         events?.cancel()
-        if let old = engine { Task { await old.stop() } }
+        let old = engine
+        generation += 1
         self.api = api
+        if newServer {
+            categories = nil
+            current = nil
+            pane = .page
+            ledger = UndoLedger()
+            undo.removeAllActions()
+            viewer.showEmpty(layout: prefs.value.layout)
+        }
+        categoriesLoading = false
         let engine = SyncEngine(api: api, store: store)
         self.engine = engine
-        events = Task { @MainActor [weak self] in
-            for await outcome in engine.events { self?.handle(outcome) }
-        }
-        Task { await engine.start() }
         setStatus("Updating…")
+        Task { @MainActor [weak self] in
+            await old?.stop()
+            guard let self, self.engine === engine else { return }
+            if newServer {
+                do { try self.store.reset() } catch { self.setStatus("Couldn't clear the local cache: \(error.localizedDescription)") }
+                self.take(.unread(category: nil, feed: nil))
+                self.rebuildScopeMenu()
+                self.refreshChrome()
+            }
+            self.events = Task { @MainActor [weak self] in
+                for await outcome in engine.events { self?.handle(outcome) }
+            }
+            await engine.start()
+        }
         loadCategories()
     }
 
@@ -189,9 +212,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         guard let api, categories == nil, !categoriesLoading else { return }
         categoriesLoading = true
         rebuildScopeMenu()
+        let generation = generation
         Task { @MainActor [weak self] in
             let result = try? await api.categories()
-            guard let self else { return }
+            guard let self, self.generation == generation else { return }
             self.categoriesLoading = false
             self.categories = result?.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             self.rebuildScopeMenu()

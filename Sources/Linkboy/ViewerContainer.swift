@@ -26,7 +26,6 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
     private let commentsCover = Cover()
     private var layoutMode: Layout?
     private var settingSplit = false
-    private var fractionPending = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -71,19 +70,13 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
         coverAll(Self.noItem)
     }
 
-    /// Puts the side-by-side divider at `splitFraction`; deferred to the next layout while the split has no width.
+    /// Moves the side-by-side divider to `splitFraction` (after a settings change). Resizes of the split keep the
+    /// fraction through `splitView(_:resizeSubviewsWithOldSize:)`.
     func applySplitFraction() {
-        guard layoutMode == .sideBySide else { return }
-        guard split.bounds.width > 0 else { fractionPending = true; return }
-        fractionPending = false
+        guard layoutMode == .sideBySide, split.bounds.width > 0 else { return }
         settingSplit = true
         split.setPosition(split.bounds.width * splitFraction, ofDividerAt: 0)
         settingSplit = false
-    }
-
-    override func layout() {
-        super.layout()
-        if fractionPending { applySplitFraction() }
     }
 
     // MARK: - Arrangement
@@ -97,11 +90,11 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
         case .single:
             pin(pageView, in: self)
         case .sideBySide:
+            // The split's delegate sets pane frames; single layout's pin left this view constraint-driven.
+            pageView.translatesAutoresizingMaskIntoConstraints = true
             split.addArrangedSubview(pageView)
             split.addArrangedSubview(commentsSlot)
             pin(split, in: self)
-            fractionPending = true
-            needsLayout = true
         }
         pin(cover, in: self)
     }
@@ -134,8 +127,19 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
 
     // MARK: - NSSplitViewDelegate
 
+    /// Window resizes and the first layout keep the page's share at `splitFraction`.
+    func splitView(_ splitView: NSSplitView, resizeSubviewsWithOldSize oldSize: NSSize) {
+        let size = splitView.bounds.size
+        let divider = splitView.dividerThickness
+        let page = ((size.width - divider) * splitFraction).rounded()
+        pageView.frame = NSRect(x: 0, y: 0, width: page, height: size.height)
+        commentsSlot.frame = NSRect(x: page + divider, y: 0, width: max(0, size.width - page - divider), height: size.height)
+    }
+
+    /// Only a drag of the divider changes the saved fraction.
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard !settingSplit, split.bounds.width > 0, let first = split.arrangedSubviews.first else { return }
+        guard !settingSplit, NSApp.currentEvent?.type == .leftMouseDragged,
+              split.bounds.width > 0, let first = split.arrangedSubviews.first else { return }
         let fraction = first.frame.width / split.bounds.width
         guard abs(fraction - splitFraction) > 0.001 else { return }
         splitFraction = fraction

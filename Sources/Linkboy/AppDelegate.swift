@@ -25,22 +25,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
+    /// Brings setup forward; an already-open setup window is left as the user has it.
     private func showSetup(error: String?) {
+        if let window = setup?.window, window.isVisible {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
         let setup = self.setup ?? SetupWindowController()
         self.setup = setup
         setup.onConnected = { [weak self] c, client in self?.connected(c, client: client) }
         setup.present(prefill: credentials, error: error)
     }
 
+    @objc private func changeServer(_ sender: Any?) { showSetup(error: nil) }
+
     private func connected(_ c: Credentials, client: MinifluxClient) {
         do {
             try CredentialStore.save(c)
         } catch {
-            alert("Couldn't save the login to the Keychain", detail: "linkboy will ask for it again next launch.")
+            alert("Couldn't save the login to the Keychain", detail: "This connection lasts until linkboy quits.")
         }
         if let main {
+            let newServer = c.baseURL != credentials?.baseURL
             credentials = c
-            main.attach(api: client)
+            main.attach(api: client, newServer: newServer)
         } else {
             openMain(c, client: client)
         }
@@ -93,10 +101,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let settingsItem = item("Settings…", #selector(showSettings(_:)), ",")
         settingsItem.target = self
+        let changeServerItem = item("Change Server…", #selector(changeServer(_:)))
+        changeServerItem.target = self
         add("linkboy", [
             item("About linkboy", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
             .separator(),
             settingsItem,
+            changeServerItem,
             .separator(),
             item("Hide linkboy", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
