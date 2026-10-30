@@ -101,6 +101,23 @@ public struct Entry: Codable, Sendable, Identifiable, Equatable {
     }
 }
 
+/// One page of `GET /v1/entries`. An entry linkboy can't decode (an empty or invalid `url`, a missing field) is left
+/// out and counted in `skipped`, so one bad entry never stalls a sync and paging still sees the page's full size.
+public struct EntryPage: Sendable, Equatable {
+    public var total: Int
+    public var entries: [Entry]
+    public var skipped: Int
+
+    public init(total: Int, entries: [Entry], skipped: Int = 0) {
+        self.total = total
+        self.entries = entries
+        self.skipped = skipped
+    }
+
+    /// Entries the server sent in this page, decodable or not.
+    public var served: Int { entries.count + skipped }
+}
+
 public struct EntryQuery: Sendable, Equatable {
     public var status: [EntryStatus]?
     public var starred: Bool?

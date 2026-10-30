@@ -149,11 +149,29 @@ final class MinifluxClientTests: XCTestCase {
         let captured = LockedBox<URLRequest>()
         let client = makeClient(base: "/miniflux/") { req, _ in
             captured.value = req
-            return (200, Data(#"{"id":1,"username":"lach"}"#.utf8))
+            return (200, Data(#"{"id":1,"username":"reader"}"#.utf8))
         }
         let user = try await client.me()
         XCTAssertEqual(captured.value?.url?.path, "/miniflux/v1/me")
-        XCTAssertEqual(user, User(id: 1, username: "lach"))
+        XCTAssertEqual(user, User(id: 1, username: "reader"))
+    }
+
+    func testPageSkipsEntriesThatFailToDecode() async throws {
+        func entry(_ id: Int, url: String) -> String {
+            """
+            {"id": \(id), "feed_id": 3, "status": "unread", "title": "T", "url": "\(url)", "comments_url": "",
+             "published_at": "2026-10-29T08:12:01+11:00", "changed_at": "2026-10-29T09:00:00+11:00", "starred": false,
+             "feed": {"id": 3, "title": "HN", "category": {"id": 7, "title": "News"}}}
+            """
+        }
+        let json = #"{"total": 4, "entries": ["# + [entry(1, url: "https://example.com/1"), entry(2, url: ""),
+                                                    #"{"id": 3}"#, entry(4, url: "https://example.com/4")]
+            .joined(separator: ",") + "]}"
+        let client = makeClient { _, _ in (200, Data(json.utf8)) }
+        let page = try await client.entries(EntryQuery())
+        XCTAssertEqual(page.entries.map(\.id), [1, 4])
+        XCTAssertEqual(page.skipped, 2)
+        XCTAssertEqual(page.total, 4)
     }
 
     func testCategoriesAndEntryDecode() async throws {

@@ -9,15 +9,22 @@ public enum SyncOutcome: Equatable, Sendable {
 
 /// Pushes queued read/star changes to Miniflux, then pulls new and changed entries into the store.
 /// One sync runs at a time; local intents write the store and queue immediately, then kick a background sync.
+/// Once Miniflux rejects the key, intents still write the store and queue but kick nothing, until `start()`.
 public actor SyncEngine {
     private static let pageSize = 250
     private static let batchSize = 1000
+    /// `lastSync` is stored this far before the sync started, so an entry stamped by a server clock running behind
+    /// ours is still pulled next time. Re-pulling an entry is harmless: upsert is idempotent.
+    private static let clockSkew: TimeInterval = 5 * 60
+    /// Status codes that mean the server will never accept a pushed change, so it is dropped rather than retried.
+    private static let permanentRejections: Set<Int> = [400, 409, 422]
 
     private let api: MinifluxAPI
     private let store: Store
     private let interval: Duration
     private let continuation: AsyncStream<SyncOutcome>.Continuation
-    /// Every `syncNow` result, in order. Single consumer.
+    /// Every sync's result, in order, except that `.unauthorized` is reported only when the key becomes rejected,
+    /// not again while it stays so. Single consumer.
     public nonisolated let events: AsyncStream<SyncOutcome>
 
     private var timer: Task<Void, Never>?
@@ -26,6 +33,8 @@ public actor SyncEngine {
     private var kickQueued = false
     private var kickTask: Task<SyncOutcome, Never>?
     private var isShutDown = false
+    /// Miniflux rejected the key on the last sync; cleared by a successful sync or `start()`.
+    private var rejected = false
 
     public init(api: MinifluxAPI, store: Store, interval: Duration = .seconds(300)) {
         self.api = api
@@ -37,6 +46,7 @@ public actor SyncEngine {
     /// Syncs now, then every `interval`, until `stop()`.
     public func start() {
         guard timer == nil, !isShutDown else { return }
+        rejected = false
         let interval = interval
         timer = Task { [weak self] in
             while !Task.isCancelled {
@@ -73,7 +83,8 @@ public actor SyncEngine {
     public func markUnread(_ ids: [Int64]) async { await record(ids.map { .status(id: $0, .unread) }) }
     public func setStarred(_ v: Bool, id: Int64) async { await record([.starred(id: id, v)]) }
 
-    /// Writes local changes to the store and its queue, then schedules a background sync to push them.
+    /// Writes local changes to the store and its queue, then schedules a background sync to push them (none while
+    /// the key is rejected; the queue keeps them for the next sync).
     public func record(_ changes: [PendingChange]) async {
         guard !isShutDown else { return }
         do {
@@ -89,7 +100,7 @@ public actor SyncEngine {
 
     /// Schedules a background sync; kicks arriving before it starts coalesce into it.
     private func kick() {
-        guard !kickQueued else { return }
+        guard !kickQueued, !rejected else { return }
         kickQueued = true
         kickTask = Task { await self.run(fromKick: true) }
     }
@@ -101,10 +112,17 @@ public actor SyncEngine {
         defer { release() }
         if fromKick { kickQueued = false }
         guard !isShutDown else { return .failed("Shut down") }
+        if fromKick && rejected { return .unauthorized }
         guard let outcome = await sync() else { return .failed("Cancelled") }
+        if outcome == .unauthorized {
+            // A rejected key stays rejected: the timer and kicks stay off until the UI calls `start()` after re-auth.
+            stop()
+            if rejected { return outcome }
+            rejected = true
+        } else if case .ok = outcome {
+            rejected = false
+        }
         continuation.yield(outcome)
-        // A rejected key stays rejected: the timer stays off until the UI calls `start()` after re-auth.
-        if outcome == .unauthorized { stop() }
         return outcome
     }
 
@@ -125,7 +143,7 @@ public actor SyncEngine {
             try await push()
             let syncStart = Date()
             let newIDs = try await pull()
-            try store.setLastSync(syncStart)
+            try store.setLastSync(syncStart.addingTimeInterval(-Self.clockSkew))
             return .ok(newEntryIDs: newIDs)
         } catch is CancellationError {
             return nil
@@ -143,7 +161,8 @@ public actor SyncEngine {
         }
     }
 
-    /// Errors that abort the sync propagate; a change the server will never accept (404, 4xx) is dropped.
+    /// Errors that abort the sync propagate; a change the server will never accept (404, `permanentRejections`) is
+    /// dropped. Anything else (403, 408, 429, 5xx…) keeps it queued for the next sync.
     private func push() async throws {
         let pending = try store.pending()
         for status in [EntryStatus.read, .unread, .removed] {
@@ -170,7 +189,7 @@ public actor SyncEngine {
             try store.dequeue(changes)
         } catch MinifluxError.notFound where !Task.isCancelled {
             try store.dequeue(changes)
-        } catch MinifluxError.http(let code) where (400..<500).contains(code) && !Task.isCancelled {
+        } catch MinifluxError.http(let code) where Self.permanentRejections.contains(code) && !Task.isCancelled {
             try store.dequeue(changes)
         }
     }
@@ -187,11 +206,11 @@ public actor SyncEngine {
         var seen = Set<Int64>()
         for var query in queries {
             while true {
-                let page = try await api.entries(query).entries
-                let known = Set(try store.entries(ids: page.map(\.id)).map(\.id))
-                try store.upsert(page)
-                for e in page where !known.contains(e.id) && seen.insert(e.id).inserted { fresh.append(e.id) }
-                if page.count < Self.pageSize { break }
+                let page = try await api.entries(query)
+                let known = Set(try store.entries(ids: page.entries.map(\.id)).map(\.id))
+                try store.upsert(page.entries)
+                for e in page.entries where !known.contains(e.id) && seen.insert(e.id).inserted { fresh.append(e.id) }
+                if page.served < Self.pageSize { break }
                 query.offset += Self.pageSize
             }
         }

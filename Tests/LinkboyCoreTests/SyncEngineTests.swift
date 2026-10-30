@@ -35,6 +35,7 @@ private final class FakeAPI: MinifluxAPI, @unchecked Sendable {
     private var _queries: [EntryQuery] = []
     private var _statusCalls: [(EntryStatus, [Int64])] = []
     var pages: [Entry] = []                       // served for every entries() call, sliced by offset/limit
+    var undecodable: Set<Int64> = []              // ids in `pages` served as entries that failed to decode
     var serverEntries: [Int64: Entry] = [:]
     var errors: [String: MinifluxError] = [:]     // keyed by call name, e.g. "setStatus", "entries", "entry:7"
 
@@ -53,16 +54,18 @@ private final class FakeAPI: MinifluxAPI, @unchecked Sendable {
     func me() async throws -> User { User(id: 1, username: "u") }
     func categories() async throws -> [CategoryRef] { [] }
 
-    func entries(_ q: EntryQuery) async throws -> (total: Int, entries: [Entry]) {
+    func entries(_ q: EntryQuery) async throws -> EntryPage {
         lock.withLock { _queries.append(q) }
         try record("entries")
         let slice = Array(pages.dropFirst(q.offset).prefix(q.limit))
-        return (pages.count, slice)
+        let good = slice.filter { !undecodable.contains($0.id) }
+        return EntryPage(total: pages.count, entries: good, skipped: slice.count - good.count)
     }
 
     func entry(id: Int64) async throws -> Entry {
         try record("entry", key: "entry:\(id)")
-        return serverEntries[id]!
+        guard let e = serverEntries[id] else { throw MinifluxError.notFound }
+        return e
     }
 
     func setStatus(_ s: EntryStatus, ids: [Int64]) async throws {
@@ -135,7 +138,21 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(api.queries.count, 1)
         XCTAssertEqual(api.queries[0].changedAfter, last)
         XCTAssertNil(api.queries[0].status)
-        XCTAssertGreaterThanOrEqual(try XCTUnwrap(store.lastSync()), before)
+        // Five minutes before the sync started, so entries changed under a lagging server clock are pulled again.
+        let lastSync = try XCTUnwrap(store.lastSync())
+        XCTAssertGreaterThanOrEqual(lastSync, before.addingTimeInterval(-300))
+        XCTAssertLessThanOrEqual(lastSync, Date().addingTimeInterval(-300))
+    }
+
+    func testUndecodableEntriesAreSkippedAndPagingContinues() async throws {
+        let store = try makeStore(), api = FakeAPI()
+        api.pages = (1...300).map { entry(Int64($0)) }
+        api.undecodable = [5, 260]
+        let outcome = await SyncEngine(api: api, store: store).syncNow()
+        XCTAssertEqual(outcome, .ok(newEntryIDs: []))
+        XCTAssertEqual(api.queries.map(\.offset), [0, 250, 0, 250])
+        XCTAssertEqual(try store.entryIDs(matching: .unread(category: nil, feed: nil)).count, 298)
+        XCTAssertNotNil(try store.lastSync())
     }
 
     func testFirstSyncPagesUnreadThenStarred() async throws {
@@ -171,16 +188,58 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(try store.pending().count, 3)
     }
 
-    func test4xxOnPushDropsThatChange() async throws {
+    func testRejectedChangeOnPushIsDropped() async throws {
         let store = try makeStore(), api = FakeAPI()
         api.errors["setStatus"] = .notFound
         api.errors["entry:5"] = .http(400)
+        api.errors["entry:7"] = .http(409)
+        api.errors["entry:8"] = .http(422)
         api.serverEntries = [6: entry(6)]
-        try store.enqueue([.status(id: 1, .read), .starred(id: 5, true), .starred(id: 6, true)])
+        try store.enqueue([.status(id: 1, .read), .starred(id: 5, true), .starred(id: 6, true), .starred(id: 7, true),
+                           .starred(id: 8, true)])
         let outcome = await SyncEngine(api: api, store: store).syncNow()
         XCTAssertEqual(outcome, .ok(newEntryIDs: []))
         XCTAssertEqual(try store.pending(), [])
         XCTAssertTrue(api.calls.contains("toggle:6"))
+    }
+
+    func testTransient4xxOnPushKeepsChangeAndFails() async throws {
+        for code in [403, 408, 429] {
+            let store = try Store(path: dir.appendingPathComponent("\(code).sqlite")), api = FakeAPI()
+            api.errors["setStatus"] = .http(code)
+            try store.enqueue([.status(id: 1, .read)])
+            let outcome = await SyncEngine(api: api, store: store).syncNow()
+            XCTAssertEqual(outcome, .failed("Server error (HTTP \(code))"), "HTTP \(code)")
+            XCTAssertEqual(try store.pending(), [.status(id: 1, .read)], "HTTP \(code)")
+        }
+    }
+
+    func testAfterUnauthorizedIntentsQueueWithoutSyncingOrEvents() async throws {
+        let store = try makeStore(), api = FakeAPI()
+        try store.upsert([entry(1), entry(2)])
+        api.errors["entries"] = .unauthorized
+        let engine = SyncEngine(api: api, store: store)
+        var it = engine.events.makeAsyncIterator()
+        let first = await engine.syncNow()
+        XCTAssertEqual(first, .unauthorized)
+        let event = await it.next()
+        XCTAssertEqual(event, .unauthorized)
+        let callsAfterRejection = api.calls
+
+        await engine.markRead([2])
+        await engine.setStarred(true, id: 1)
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(api.calls, callsAfterRejection)
+        XCTAssertEqual(try store.entries(ids: [2]).first?.status, .read)
+        XCTAssertEqual(try store.pending(), [.status(id: 2, .read), .starred(id: 1, true)])
+
+        // An explicit sync still runs, but a repeat rejection is not a new event.
+        let again = await engine.syncNow()
+        XCTAssertEqual(again, .unauthorized)
+        await engine.shutdown()
+        var rest: [SyncOutcome] = []
+        while let e = await it.next() { rest.append(e) }
+        XCTAssertEqual(rest, [])
     }
 
     func testServerErrorOnPushKeepsChangeAndFails() async throws {

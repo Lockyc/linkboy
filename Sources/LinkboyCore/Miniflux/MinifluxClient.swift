@@ -2,7 +2,7 @@ import Foundation
 
 public protocol MinifluxAPI: Sendable {
     func me() async throws -> User
-    func entries(_ q: EntryQuery) async throws -> (total: Int, entries: [Entry])
+    func entries(_ q: EntryQuery) async throws -> EntryPage
     func entry(id: Int64) async throws -> Entry
     func setStatus(_ s: EntryStatus, ids: [Int64]) async throws
     func toggleBookmark(id: Int64) async throws
@@ -24,8 +24,13 @@ public final class MinifluxClient: MinifluxAPI {
         try await decode(User.self, from: send(request("/v1/me")))
     }
 
-    public func entries(_ q: EntryQuery) async throws -> (total: Int, entries: [Entry]) {
-        struct Page: Decodable { let total: Int; let entries: [Entry] }
+    public func entries(_ q: EntryQuery) async throws -> EntryPage {
+        /// Decodes each entry on its own, so one that fails leaves a nil rather than failing the page.
+        struct Lenient: Decodable {
+            let entry: Entry?
+            init(from decoder: Decoder) throws { entry = try? Entry(from: decoder) }
+        }
+        struct Page: Decodable { let total: Int; let entries: [Lenient] }
         var items: [URLQueryItem] = []
         for s in q.status ?? [] { items.append(.init(name: "status", value: s.rawValue)) }
         if let starred = q.starred { items.append(.init(name: "starred", value: String(starred))) }
@@ -39,7 +44,8 @@ public final class MinifluxClient: MinifluxAPI {
             .init(name: "direction", value: "desc"),
         ]
         let page = try await decode(Page.self, from: send(request("/v1/entries", query: items)))
-        return (page.total, page.entries)
+        let entries = page.entries.compactMap(\.entry)
+        return EntryPage(total: page.total, entries: entries, skipped: page.entries.count - entries.count)
     }
 
     public func entry(id: Int64) async throws -> Entry {
