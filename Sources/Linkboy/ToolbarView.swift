@@ -13,12 +13,13 @@ struct ToolbarState {
     var starred = false
     var openInBrowser: String?
     var markAll: String?
+    var undoMarkAll: String?
 }
 
-/// The fixed row above the list and viewer: Previous · Next · Page/Comments · Star · Open in Browser · Mark All….
-/// Controls keep their size and position in every state.
+/// The fixed row above the list and viewer: Previous · Next · Page/Comments · Star · Open in Browser · Mark All… ·
+/// Undo Mark All. Controls keep their size and position in every state.
 final class ToolbarView: NSView {
-    enum Action { case previous, next, page, comments, star, openInBrowser, markAll }
+    enum Action { case previous, next, page, comments, star, openInBrowser, markAll, undoMarkAll }
     var onAction: ((Action) -> Void)?
 
     private let previous = ToolbarView.button("Previous", symbol: "chevron.up")
@@ -27,13 +28,14 @@ final class ToolbarView: NSView {
     private let star = ToolbarView.button("Star", symbol: "star")
     private let open = ToolbarView.button("Open in Browser", symbol: "safari")
     private let markAll = ToolbarView.button("Mark All…", symbol: "checkmark.circle")
+    private let undoMarkAll = ToolbarView.button("Undo Mark All", symbol: "arrow.uturn.backward")
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         pane.selectedSegment = 0
         pane.segmentStyle = .rounded
         for (control, action) in [(previous, Action.previous), (next, .next), (star, .star), (open, .openInBrowser),
-                                  (markAll, .markAll)] {
+                                  (markAll, .markAll), (undoMarkAll, .undoMarkAll)] {
             control.target = self
             control.action = #selector(clicked(_:))
             control.tag = tags.firstIndex(of: action)!
@@ -44,7 +46,7 @@ final class ToolbarView: NSView {
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let row = NSStackView(views: [previous, next, pane, star, open, spacer, markAll])
+        let row = NSStackView(views: [previous, next, pane, star, open, spacer, markAll, undoMarkAll])
         row.orientation = .horizontal
         row.spacing = 8
         row.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
@@ -65,6 +67,7 @@ final class ToolbarView: NSView {
         Self.set(next, s.next)
         Self.set(open, s.openInBrowser)
         Self.set(markAll, s.markAll)
+        Self.set(undoMarkAll, s.undoMarkAll)
         Self.set(star, s.star)
         star.title = s.starred ? "Starred" : "Star"
         star.image = NSImage(systemSymbolName: s.starred ? "star.fill" : "star", accessibilityDescription: nil)
@@ -76,7 +79,7 @@ final class ToolbarView: NSView {
         pane.selectedSegment = s.showingComments ? 1 : 0
     }
 
-    private let tags: [Action] = [.previous, .next, .star, .openInBrowser, .markAll]
+    private let tags: [Action] = [.previous, .next, .star, .openInBrowser, .markAll, .undoMarkAll]
 
     @objc private func clicked(_ sender: NSButton) { onAction?(tags[sender.tag]) }
 

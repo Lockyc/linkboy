@@ -65,6 +65,21 @@ public final class Store: Sendable {
         return ids.compactMap { found[$0] }
     }
 
+    /// How many of `ids` are known and unread, counted in the database rather than by loading the entries: cheap
+    /// enough to recompute on every keypress over a long list.
+    public func unreadCount(among ids: [Int64]) throws -> Int {
+        try pool.read { db in
+            var count = 0
+            for start in stride(from: 0, to: ids.count, by: Self.idsPerQuery) {
+                let chunk = Array(ids[start..<min(start + Self.idsPerQuery, ids.count)])
+                let marks = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+                count += try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM entry WHERE status = 'unread' AND id IN (\(marks))",
+                                          arguments: StatementArguments(chunk)) ?? 0
+            }
+            return count
+        }
+    }
+
     /// Under SQLite's lowest default bound-parameter limit.
     private static let idsPerQuery = 999
 

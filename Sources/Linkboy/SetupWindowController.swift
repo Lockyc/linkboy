@@ -69,22 +69,37 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// Shows the window, prefilled, with `error` (if any) already in place.
-    func present(prefill: Credentials?, error: String?) {
+    /// Shows the window, prefilled, with `error` (if any) already in place. `takeFocus` false (a background event
+    /// such as a rejected key) orders it in without making it key or activating the app, so reading carries on.
+    func present(prefill: Credentials?, error: String?, takeFocus: Bool = true) {
         if let prefill {
             urlField.stringValue = prefill.baseURL.absoluteString
             keyField.stringValue = prefill.apiKey
         }
         show(error ?? "")
         window?.center()
+        guard takeFocus else { window?.orderFront(nil); return }
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    /// Replaces the message line of the window as it stands, without moving or focusing it.
+    func showError(_ text: String) { show(text) }
+
+    static func message(for error: ServerURLError) -> String {
+        switch error {
+        case .invalid: return "Enter the server's full address, starting with https://"
+        case .insecure: return "Use https:// — plain http is only allowed for local servers"
+        }
+    }
+
     @objc private func connectClicked() {
-        guard let url = Credentials.serverURL(from: urlField.stringValue) else {
-            return show("Enter the server's full address, starting with http:// or https://")
+        let url: URL
+        do {
+            url = try Credentials.serverURL(from: urlField.stringValue)
+        } catch {
+            return show(Self.message(for: error as? ServerURLError ?? .invalid))
         }
         let key = keyField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else { return show("Enter an API key") }
@@ -114,8 +129,9 @@ final class SetupWindowController: NSWindowController, NSWindowDelegate {
             if let failure {
                 self.show(failure)
             } else {
-                self.close()
+                // Connected first, so on first run the main window exists before this, the only window, closes.
                 self.onConnected?(credentials, client)
+                self.close()
             }
         }
     }

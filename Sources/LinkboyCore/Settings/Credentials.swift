@@ -12,17 +12,37 @@ public struct Credentials: Equatable, Sendable {
 
     /// The Miniflux server URL typed by the user, as `MinifluxClient` needs it: http(s) with a host, no query,
     /// fragment, trailing slash or trailing `/v1` — Miniflux's API Keys page shows the endpoint with `/v1/`,
-    /// and the client adds that itself. Nil when the text isn't such a URL.
-    public static func serverURL(from text: String) -> URL? {
+    /// and the client adds that itself. The API key travels in every request, so plain http is refused
+    /// (`.insecure`) except for a local server: `localhost`, a `.local` name, or an IP address literal.
+    public static func serverURL(from text: String) throws -> URL {
         guard var c = URLComponents(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
               let scheme = c.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              let host = c.host, !host.isEmpty else { return nil }
+              let host = c.host, !host.isEmpty else { throw ServerURLError.invalid }
+        if scheme == "http" && !isLocal(host: host) { throw ServerURLError.insecure }
+        c.scheme = scheme
         c.query = nil
         c.fragment = nil
         while c.path.hasSuffix("/") { c.path.removeLast() }
         if c.path.lowercased().hasSuffix("/v1") { c.path.removeLast(3) }
-        return c.url
+        guard let url = c.url else { throw ServerURLError.invalid }
+        return url
     }
+
+    /// `host` as `URLComponents` gives it: IPv6 literals keep their brackets.
+    static func isLocal(host: String) -> Bool {
+        let name = host.lowercased()
+        if name == "localhost" || name.hasSuffix(".local") { return true }
+        if name.hasPrefix("[") && name.hasSuffix("]") { return true }
+        let octets = name.split(separator: ".", omittingEmptySubsequences: false)
+        return octets.count == 4 && octets.allSatisfy { !$0.isEmpty && $0.count <= 3 && $0.allSatisfy { ("0"..."9").contains($0) } && UInt8($0) != nil }
+    }
+}
+
+public enum ServerURLError: Error, Equatable, Sendable {
+    /// Not an http(s) URL with a host.
+    case invalid
+    /// Plain http to a server that isn't local.
+    case insecure
 }
 
 public enum CredentialError: Error, Equatable {

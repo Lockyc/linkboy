@@ -37,17 +37,31 @@ final class CredentialsTests: XCTestCase {
         XCTAssertEqual(try CredentialStore.itemCount(), 1)
     }
 
+    private func url(_ text: String) -> Result<URL, ServerURLError> {
+        Result { try Credentials.serverURL(from: text) }.mapError { $0 as! ServerURLError }
+    }
+
     func testServerURLNormalisation() {
-        XCTAssertEqual(Credentials.serverURL(from: " https://reader.example.com/ "), URL(string: "https://reader.example.com"))
-        XCTAssertEqual(Credentials.serverURL(from: "http://reader.example.com:8080/miniflux/?a=1#top"),
-                       URL(string: "http://reader.example.com:8080/miniflux"))
-        XCTAssertEqual(Credentials.serverURL(from: "https://reader.example.com/v1/"), URL(string: "https://reader.example.com"))
-        XCTAssertEqual(Credentials.serverURL(from: "https://reader.example.com/miniflux/v1"),
-                       URL(string: "https://reader.example.com/miniflux"))
-        XCTAssertEqual(Credentials.serverURL(from: "https://reader.example.com/v1x"), URL(string: "https://reader.example.com/v1x"))
-        XCTAssertNil(Credentials.serverURL(from: "reader.example.com"))
-        XCTAssertNil(Credentials.serverURL(from: "ftp://reader.example.com"))
-        XCTAssertNil(Credentials.serverURL(from: "https://"))
-        XCTAssertNil(Credentials.serverURL(from: ""))
+        XCTAssertEqual(url(" https://reader.example.com/ "), .success(URL(string: "https://reader.example.com")!))
+        XCTAssertEqual(url("https://reader.example.com:8443/miniflux/?a=1#top"),
+                       .success(URL(string: "https://reader.example.com:8443/miniflux")!))
+        XCTAssertEqual(url("https://reader.example.com/v1/"), .success(URL(string: "https://reader.example.com")!))
+        XCTAssertEqual(url("https://reader.example.com/miniflux/v1"), .success(URL(string: "https://reader.example.com/miniflux")!))
+        XCTAssertEqual(url("https://reader.example.com/v1x"), .success(URL(string: "https://reader.example.com/v1x")!))
+        XCTAssertEqual(url("reader.example.com"), .failure(.invalid))
+        XCTAssertEqual(url("ftp://reader.example.com"), .failure(.invalid))
+        XCTAssertEqual(url("https://"), .failure(.invalid))
+        XCTAssertEqual(url(""), .failure(.invalid))
+    }
+
+    func testPlainHTTPOnlyForLocalServers() {
+        for local in ["http://localhost:8080", "http://LOCALHOST/miniflux", "http://reader.local", "http://NAS.Local:8080",
+                      "http://192.168.1.20:8080", "http://127.0.0.1", "http://[::1]:8080", "http://[fd00::12]/miniflux"] {
+            XCTAssertEqual(url(local + "/v1/"), .success(URL(string: local)!), local)
+        }
+        for remote in ["http://reader.example.com", "HTTP://reader.example.com/v1/", "http://localhost.example.com",
+                       "http://reader.local.example.com", "http://1.2.3.4.example.com", "http://192.168.1"] {
+            XCTAssertEqual(url(remote), .failure(.insecure), remote)
+        }
     }
 }

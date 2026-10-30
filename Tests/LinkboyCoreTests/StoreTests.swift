@@ -41,6 +41,16 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(try store.entries(ids: Array(ids)).map(\.id), Array(ids.dropLast()))
     }
 
+    func testUnreadCountAmongIDsAcrossQueryChunks() throws {
+        let store = try makeStore()
+        try store.upsert((1...2500).map { entry(Int64($0), status: $0 % 5 == 0 ? .read : .unread) })
+        try store.upsert([entry(3000, status: .removed)])
+        XCTAssertEqual(try store.unreadCount(among: (1...2500).map(Int64.init)), 2000)
+        XCTAssertEqual(try store.unreadCount(among: [5, 10, 3000, 99_999]), 0)
+        XCTAssertEqual(try store.unreadCount(among: [1, 2, 5, 99_999]), 2)
+        XCTAssertEqual(try store.unreadCount(among: []), 0)
+    }
+
     func testRecordWritesEntriesAndQueue() throws {
         let store = try makeStore()
         try store.upsert([entry(1), entry(2)])

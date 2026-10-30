@@ -18,9 +18,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.mainMenu = makeMainMenu()
         prefs.observe { [weak self] in self?.showBindings($0.bindings) }
         do {
-            if let saved = try CredentialStore.load(), let url = Credentials.serverURL(from: saved.baseURL.absoluteString) {
-                let c = Credentials(baseURL: url, apiKey: saved.apiKey)
-                openMain(c, client: MinifluxClient(baseURL: c.baseURL, apiKey: c.apiKey))
+            if let saved = try CredentialStore.load() {
+                do {
+                    let c = Credentials(baseURL: try Credentials.serverURL(from: saved.baseURL.absoluteString), apiKey: saved.apiKey)
+                    openMain(c, client: MinifluxClient(baseURL: c.baseURL, apiKey: c.apiKey))
+                } catch {
+                    credentials = saved
+                    showSetup(error: SetupWindowController.message(for: error as? ServerURLError ?? .invalid))
+                }
             } else {
                 showSetup(error: nil)
             }
@@ -32,16 +37,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    /// Brings setup forward; an already-open setup window is left as the user has it.
-    private func showSetup(error: String?) {
-        if let window = setup?.window, window.isVisible {
-            window.makeKeyAndOrderFront(nil)
+    /// Brings setup forward; an already-open setup window is left as the user has it. `fromBackground` (a rejected
+    /// key reported by sync) never pulls it forward: an open window only gets the message, a closed one opens
+    /// without taking focus from the reading window.
+    private func showSetup(error: String?, fromBackground: Bool = false) {
+        if let setup, let window = setup.window, window.isVisible {
+            if fromBackground {
+                if let error { setup.showError(error) }
+            } else {
+                window.makeKeyAndOrderFront(nil)
+            }
             return
         }
         let setup = self.setup ?? SetupWindowController()
         self.setup = setup
         setup.onConnected = { [weak self] c, client in self?.connected(c, client: client) }
-        setup.present(prefill: credentials, error: error)
+        setup.present(prefill: credentials, error: error, takeFocus: !fromBackground)
     }
 
     @objc private func changeServer(_ sender: Any?) { showSetup(error: nil) }
@@ -68,7 +79,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                       appropriateFor: nil, create: true)
             let store = try Store(path: support.appendingPathComponent("linkboy/linkboy.sqlite"))
             let main = try MainWindowController(store: store, preferences: prefs)
-            main.onUnauthorized = { [weak self] in self?.showSetup(error: "Miniflux rejected the API key") }
+            main.onUnauthorized = { [weak self] in
+                self?.showSetup(error: "Miniflux rejected the API key", fromBackground: true)
+            }
             self.main = main
             main.attach(api: client)
             main.showWindow(nil)
@@ -155,12 +168,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
         let back = MainWindowController.backKey, forward = MainWindowController.forwardKey
+        let sync = MainWindowController.syncKey
         add("Go", [
             nextItem,
             previousItem,
             .separator(),
             item("Back", #selector(MainWindowController.historyBack(_:)), back.key, back.modifierFlags),
             item("Forward", #selector(MainWindowController.historyForward(_:)), forward.key, forward.modifierFlags),
+            .separator(),
+            item("Sync Now", #selector(MainWindowController.syncNow(_:)), sync.key, sync.modifierFlags),
         ])
         main.items.last?.submenu?.delegate = self
         showBindings(prefs.value.bindings)

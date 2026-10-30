@@ -4,7 +4,8 @@ import LinkboyCore
 /// The reading window: toolbar over a list | viewer split. Reads a frozen `Snapshot` of the chosen scope;
 /// sync results only raise the "N new" count until the user retakes the list.
 final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitViewDelegate, NSMenuItemValidation {
-    /// Called when Miniflux rejects the saved key; the app reopens setup and calls `attach` again on success.
+    /// Called once each time Miniflux starts rejecting the key; the app reopens setup and calls `attach` again on
+    /// success.
     var onUnauthorized: (() -> Void)?
 
     private let store: Store
@@ -12,6 +13,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private var api: MinifluxAPI?
     private var engine: SyncEngine?
     private var events: Task<Void, Never>?
+    /// The engine's last sync was rejected for the key; reading carries on locally until `attach`.
+    private var rejected = false
 
     private var snapshot: Snapshot
     private var current: Entry?
@@ -34,6 +37,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private let viewer = ViewerContainer()
     private var settingSplit = false
     private var monitors: [Any] = []
+    private var observers: [NSObjectProtocol] = []
 
     private static let categoriesOffline = "Categories unavailable offline"
 
@@ -45,7 +49,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "linkboy"
         window.animationBehavior = .none
-        window.minSize = NSSize(width: 760, height: 420)
+        window.minSize = NSSize(width: 860, height: 420)   // the toolbar's fitting width, so no control is clipped
         super.init(window: window)
         window.delegate = self
         undo.groupsByEvent = true
@@ -65,19 +69,30 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         setStatus("Updating…")
         refreshChrome()
         installMonitors()
+        // ⌘Z, the toolbar's Undo Mark All and Redo all change what is undoable.
+        for name in [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: undo, queue: .main) { [weak self] _ in
+                self?.refreshChrome()
+            })
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    deinit { monitors.forEach(NSEvent.removeMonitor) }
+    deinit {
+        monitors.forEach(NSEvent.removeMonitor)
+        observers.forEach(NotificationCenter.default.removeObserver)
+    }
 
     /// Starts syncing with `api`, replacing any previous engine once it has fully shut down. `newServer` empties
     /// the local cache in between: another server's entry ids, queued changes and last-sync mark mean nothing
-    /// there. Until the new engine is attached, reading changes stay local.
+    /// there; if that fails, no engine is attached and the status line says why. Until the new engine is attached,
+    /// reading changes stay local.
     func attach(api: MinifluxAPI, newServer: Bool = false) {
         events?.cancel()
         let old = engine
         engine = nil
+        rejected = false
         generation += 1
         let generation = generation
         self.api = api
@@ -95,7 +110,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             await old?.shutdown()
             guard let self, self.generation == generation else { return }
             if newServer {
-                do { try self.store.reset() } catch { self.setStatus("Couldn't clear the local cache: \(error.localizedDescription)") }
+                do {
+                    try self.store.reset()
+                } catch {
+                    // Syncing another server's entries into this cache would mix two servers' ids.
+                    self.setStatus("Couldn't clear the local cache: \(error.localizedDescription)")
+                    return
+                }
                 self.take(.unread(category: nil, feed: nil))
                 self.rebuildScopeMenu()
                 self.refreshChrome()
@@ -282,7 +303,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     // MARK: - Keys and mouse
 
-    /// The only route for reading keys and ⌘[ / ⌘] (the Go menu shows them but never acts on them). Keys are caught
+    /// The only route for reading keys, ⌘[ / ⌘] and ⌘R (the Go menu shows them but never acts on them). Keys are caught
     /// before the first responder sees them, but never in another window or while one of the window's own text
     /// fields is being edited. While a page has keyboard focus its unmodified keys go to the page, whose
     /// `FocusProbe` listener sends bound ones back through `routePageKey` when no text control has focus.
@@ -303,6 +324,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         else { return event }
         if combo == Self.backKey { historyBack(nil); return nil }
         if combo == Self.forwardKey { historyForward(nil); return nil }
+        if combo == Self.syncKey { syncNow(nil); return nil }
         guard let action = KeyRouter.route(combo, editableFocused: viewer.pageHasKeyboard, bindings: prefs.value.bindings)
         else { return event }
         perform(action)
@@ -311,6 +333,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     static let backKey = KeyCombo(key: "[", modifiers: [.command])
     static let forwardKey = KeyCombo(key: "]", modifiers: [.command])
+    static let syncKey = KeyCombo(key: "r", modifiers: [.command])
 
     /// A key the page has already found bound and outside any text control.
     private func routePageKey(_ combo: KeyCombo) {
@@ -364,6 +387,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         case .star: toggleStar()
         case .openInBrowser: openInBrowser()
         case .markAll: markAll()
+        case .undoMarkAll: if undo.canUndo { undo.undo() }
         }
     }
 
@@ -434,10 +458,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     // MARK: - Mark all
 
-    private func markAllPlan() -> MarkAllPlan? { try? MarkAllPlan.plan(for: snapshot, store: store) }
-
     private func markAll() {
-        guard let plan = markAllPlan() else { return }
+        guard let plan = try? MarkAllPlan.plan(for: snapshot, store: store) else { return }
         let alert = NSAlert()
         alert.messageText = plan.prompt
         alert.addButton(withTitle: "Cancel")
@@ -473,9 +495,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     // MARK: - Sync
 
+    @objc func syncNow(_ sender: Any?) {
+        guard let engine, !rejected else { return }
+        setStatus("Updating…")
+        Task { await engine.syncNow() }
+    }
+
+    /// Why Sync Now is unavailable, or nil when it can run.
+    private var syncUnavailable: String? {
+        if rejected { return "Miniflux rejected the API key" }
+        if engine == nil { return "Not connected to Miniflux" }
+        return nil
+    }
+
     private func handle(_ outcome: SyncOutcome) {
         switch outcome {
         case .ok(let newIDs):
+            rejected = false
             setStatus("Updated \(Date().formatted(date: .omitted, time: .shortened))")
             if snapshot.ids.isEmpty {
                 take(snapshot.scope)
@@ -487,6 +523,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         case .offline:
             setStatus("Offline")
         case .unauthorized:
+            rejected = true
             setStatus("Miniflux rejected the API key")
             onUnauthorized?()
         case .failed(let message):
@@ -531,7 +568,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             s.star = ViewerContainer.noItem
             s.openInBrowser = ViewerContainer.noItem
         }
-        if markAllPlan() == nil { s.markAll = "Nothing unread in this list" }
+        if ((try? store.unreadCount(among: snapshot.ids)) ?? 0) == 0 { s.markAll = "Nothing unread in this list" }
+        if !undo.canUndo { s.undoMarkAll = "Nothing to undo" }
         return s
     }
 
@@ -548,6 +586,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             let ok = viewer.focusedViewer.canGoForward
             item.toolTip = ok ? nil : "No later page in this pane"
             return ok
+        case #selector(syncNow(_:)): item.toolTip = syncUnavailable; return syncUnavailable == nil
         default: return true
         }
     }
