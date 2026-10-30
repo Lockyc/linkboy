@@ -24,21 +24,30 @@ final class ContentRules {
             try? fm.createDirectory(at: Self.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? Data("[]\n".utf8).write(to: Self.fileURL, options: .atomic)
         }
-        Task { error = await compile(savedSource()) }
+        Task {
+            switch await compile(savedSource()) {
+            case .success(let compiled): activate(compiled)
+            case .failure(let failure): error = failure.message
+            }
+        }
     }
 
     func savedSource() -> String { (try? String(contentsOf: Self.fileURL, encoding: .utf8)) ?? "[]\n" }
 
-    /// Compiles `source`; on success it becomes the active list and is written to the file. Returns the
-    /// compile or write error, in which case the previous list stays active and the file is untouched.
+    /// Compiles `source`, writes it to the file, then makes it the active list. Returns the compile or write error,
+    /// in which case the previous list stays active and the file is untouched.
     func save(_ source: String) async -> String? {
-        if let failure = await compile(source) { return failure }
+        let compiled: WKContentRuleList?
+        switch await compile(source) {
+        case .success(let list): compiled = list
+        case .failure(let failure): return failure.message
+        }
         do {
             try Data(source.utf8).write(to: Self.fileURL, options: .atomic)
         } catch {
             return "Couldn't save the rules: \(error.localizedDescription)"
         }
-        error = nil
+        activate(compiled)
         return nil
     }
 
@@ -48,27 +57,30 @@ final class ContentRules {
         if let list { controller.add(list) }
     }
 
-    /// An empty array means no rules: WebKit refuses to compile one.
-    private func compile(_ source: String) async -> String? {
-        let compiled: WKContentRuleList?
+    private struct Failure: Error { let message: String }
+
+    /// The compiled list, nil for an empty array (WebKit refuses to compile one, and it means no rules).
+    private func compile(_ source: String) async -> Result<WKContentRuleList?, Failure> {
         if let parsed = try? JSONSerialization.jsonObject(with: Data(source.utf8)) as? [Any], parsed.isEmpty {
-            compiled = nil
-        } else {
-            do {
-                guard let list = try await WKContentRuleListStore.default()
-                    .compileContentRuleList(forIdentifier: Self.identifier, encodedContentRuleList: source)
-                else { return "The rules didn't compile" }
-                compiled = list
-            } catch {
-                // WebKit puts the compiler's message ("Rule list compilation failed: …") in the help anchor.
-                return (error as NSError).helpAnchor ?? error.localizedDescription
-            }
+            return .success(nil)
         }
+        do {
+            guard let list = try await WKContentRuleListStore.default()
+                .compileContentRuleList(forIdentifier: Self.identifier, encodedContentRuleList: source)
+            else { return .failure(Failure(message: "The rules didn't compile")) }
+            return .success(list)
+        } catch {
+            // WebKit puts the compiler's message ("Rule list compilation failed: …") in the help anchor.
+            return .failure(Failure(message: (error as NSError).helpAnchor ?? error.localizedDescription))
+        }
+    }
+
+    private func activate(_ compiled: WKContentRuleList?) {
         list = compiled
+        error = nil
         for c in controllers.allObjects {
             c.removeAllContentRuleLists()
             if let compiled { c.add(compiled) }
         }
-        return nil
     }
 }
