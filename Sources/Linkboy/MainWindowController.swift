@@ -33,6 +33,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private let list = EntryListView()
     private let viewer = ViewerContainer()
     private var settingSplit = false
+    private var monitors: [Any] = []
 
     private static let noItem = "No item selected"
     private static let categoriesOffline = "Categories unavailable offline"
@@ -64,9 +65,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         viewer.showEmpty(layout: prefs.value.layout)
         setStatus("Updating…")
         refreshChrome()
+        installMonitors()
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    deinit { monitors.forEach(NSEvent.removeMonitor) }
 
     /// Starts syncing with `api`, replacing any previous engine once it has fully shut down. `newServer` empties
     /// the local cache in between: another server's entry ids, queued changes and last-sync mark mean nothing
@@ -269,6 +273,54 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         }
     }
 
+    // MARK: - Keys and mouse
+
+    /// Reading keys are caught before the first responder sees them, so they work while a web page has focus.
+    /// They never fire in another window, while one of the window's own text fields is being edited, or (for
+    /// unmodified keys) while a text field in the page has focus.
+    private func installMonitors() {
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in self?.routeKey(e) ?? e }) {
+            monitors.append(m)
+        }
+        if let m = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown, handler: { [weak self] e in self?.routeMouse(e) ?? e }) {
+            monitors.append(m)
+        }
+    }
+
+    private func routeKey(_ event: NSEvent) -> NSEvent? {
+        guard let window, window.isKeyWindow, event.window === window,
+              !(window.firstResponder is NSText || window.firstResponder is NSTextField),
+              let combo = KeyCombo(event: event),
+              let action = KeyRouter.route(combo, editableFocused: viewer.focusedViewer.editableFocused,
+                                           bindings: prefs.value.bindings)
+        else { return event }
+        perform(action)
+        return nil
+    }
+
+    /// Mouse buttons 4 and 5 (side buttons) go back and forward in the viewer under the pointer. WebKit never
+    /// hands them to the page, so they're handled here.
+    private func routeMouse(_ event: NSEvent) -> NSEvent? {
+        guard event.window === window, event.buttonNumber == 3 || event.buttonNumber == 4 else { return event }
+        let target = viewer.viewer(atWindowPoint: event.locationInWindow) ?? viewer.focusedViewer
+        if event.buttonNumber == 3 { target.webView.goBack() } else { target.webView.goForward() }
+        return nil
+    }
+
+    private func perform(_ action: Action) {
+        switch action {
+        case .next: goNext(nil)
+        case .previous: goPrevious(nil)
+        case .togglePane: if prefs.value.layout == .single { showPane(pane == .page ? .comments : .page) }
+        case .star: toggleStar()
+        case .openInBrowser: openInBrowser()
+        }
+    }
+
+    @objc func historyBack(_ sender: Any?) { viewer.focusedViewer.webView.goBack() }
+
+    @objc func historyForward(_ sender: Any?) { viewer.focusedViewer.webView.goForward() }
+
     // MARK: - Reading
 
     private func perform(_ action: ToolbarView.Action) {
@@ -335,8 +387,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     private func openInBrowser() {
         guard let current else { return }
-        let url = pane == .comments && prefs.value.layout == .single ? current.commentsURL ?? current.url : current.url
-        NSWorkspace.shared.open(url)
+        let focused = viewer.focusedViewer
+        let start = focused === viewer.commentsViewer ? current.commentsURL ?? current.url : current.url
+        NSWorkspace.shared.open(focused.url ?? start)
     }
 
     // MARK: - Mark all
@@ -434,7 +487,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         if let current {
             if prefs.value.layout == .sideBySide { s.pane = "Page and comments are side by side" }
             if current.commentsURL == nil { s.comments = ViewerContainer.noComments }
-            s.showingComments = pane == .comments
+            s.showingComments = pane == .comments && prefs.value.layout == .single
             s.starred = current.starred
         } else {
             s.pane = Self.noItem
@@ -451,6 +504,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         switch item.action {
         case #selector(goNext(_:)): item.toolTip = s.next; return s.next == nil
         case #selector(goPrevious(_:)): item.toolTip = s.previous; return s.previous == nil
+        case #selector(historyBack(_:)): return viewer.focusedViewer.webView.canGoBack
+        case #selector(historyForward(_:)): return viewer.focusedViewer.webView.canGoForward
         default: return true
         }
     }

@@ -7,9 +7,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var main: MainWindowController?
     private var settings: SettingsWindowController?
     private var credentials: Credentials?
+    private let nextItem = NSMenuItem(title: "Next", action: #selector(MainWindowController.goNext(_:)), keyEquivalent: "")
+    private let previousItem = NSMenuItem(title: "Previous", action: #selector(MainWindowController.goPrevious(_:)),
+                                          keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        ContentRules.shared.loadSaved()
         NSApp.mainMenu = makeMainMenu()
+        prefs.observe { [weak self] in self?.showBindings($0.bindings) }
         do {
             if let saved = try CredentialStore.load(), let url = Credentials.serverURL(from: saved.baseURL.absoluteString) {
                 let c = Credentials(baseURL: url, apiKey: saved.apiKey)
@@ -85,6 +90,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         a.runModal()
     }
 
+    /// The Go menu shows Next and Previous's bound keys. The main window's key monitor performs them before the
+    /// menu sees the key, so they also work while a web page has focus.
+    private func showBindings(_ bindings: KeyBindings) {
+        for (item, action) in [(nextItem, Action.next), (previousItem, .previous)] {
+            let combo = bindings.combo(for: action)
+            item.keyEquivalent = combo?.key ?? ""
+            item.keyEquivalentModifierMask = combo?.modifierFlags ?? []
+        }
+    }
+
     private func makeMainMenu() -> NSMenu {
         let main = NSMenu()
         func add(_ title: String, _ items: [NSMenuItem]) {
@@ -124,11 +139,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Paste", #selector(NSText.paste(_:)), "v"),
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
-        // Key equivalents for reading come from the key router, not the menu.
         add("Go", [
-            item("Next", #selector(MainWindowController.goNext(_:))),
-            item("Previous", #selector(MainWindowController.goPrevious(_:))),
+            nextItem,
+            previousItem,
+            .separator(),
+            item("Back", #selector(MainWindowController.historyBack(_:)), "["),
+            item("Forward", #selector(MainWindowController.historyForward(_:)), "]"),
         ])
+        showBindings(prefs.value.bindings)
         add("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Close", #selector(NSWindow.performClose(_:)), "w"),
