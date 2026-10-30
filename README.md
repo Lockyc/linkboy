@@ -35,14 +35,15 @@ Installs the notarized app to `/Applications/linkboy.app`. It updates itself aft
 | `j` / `k` | Next / previous item |
 | `c` | Toggle page / comments |
 | `s` | Star |
+| `u` | Mark read / unread |
 | `o` | Open in the default browser |
 | `⌘[` / `⌘]` | Back / forward in the focused view (fixed) |
 | `⌘R` | Sync now (fixed) |
 
-`j`, `k`, `c`, `s` and `o` are rebindable in Settings and work while a web page has focus, except
-when you are typing in one of its fields. Mouse side buttons go back and forward in the view under
-the pointer, and ⌘-click opens a link in the default browser. Marking everything read has no key:
-it asks first, naming the count, and can be undone with `⌘Z` or the toolbar's **Undo Mark All**.
+`j`, `k`, `c`, `s`, `u` and `o` are rebindable in Settings and work while a web page has focus,
+except when you are typing in one of its fields. Mouse side buttons go back and forward in the view
+under the pointer, and ⌘-click opens a link in the default browser. **Item → Mark All as Read…** has
+no key: it asks first, naming the count, and `⌘Z` undoes it.
 
 ## Status
 

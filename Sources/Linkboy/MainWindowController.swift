@@ -49,7 +49,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "linkboy"
         window.animationBehavior = .none
-        window.minSize = NSSize(width: 860, height: 420)   // the toolbar's fitting width, so no control is clipped
+        window.minSize = NSSize(width: 860, height: 420)   // wider than the toolbar, so no control is clipped
         super.init(window: window)
         window.delegate = self
         undo.groupsByEvent = true
@@ -69,7 +69,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         setStatus("Updating…")
         refreshChrome()
         installMonitors()
-        // ⌘Z, the toolbar's Undo Mark All and Redo all change what is undoable.
+        // Undoing or redoing Mark All can change the open item's read state.
         for name in [Notification.Name.NSUndoManagerDidUndoChange, .NSUndoManagerDidRedoChange] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: undo, queue: .main) { [weak self] _ in
                 self?.refreshChrome()
@@ -357,6 +357,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         case .previous: goPrevious(nil)
         case .togglePane: togglePane()
         case .star: toggleStar()
+        case .toggleRead: toggleRead(nil)
         case .openInBrowser: openInBrowser()
         }
     }
@@ -385,9 +386,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         case .page: showPane(.page)
         case .comments: showPane(.comments)
         case .star: toggleStar()
+        case .toggleRead: toggleRead(nil)
         case .openInBrowser: openInBrowser()
-        case .markAll: markAll()
-        case .undoMarkAll: if undo.canUndo { undo.undo() }
         }
     }
 
@@ -436,6 +436,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         refreshChrome()
     }
 
+    /// Marks the open item unread, or read again; it stays open and in the list either way.
+    @objc func toggleRead(_ sender: Any?) {
+        guard var entry = current else { return }
+        entry.status = entry.status == .unread ? .read : .unread
+        current = entry
+        record([.status(id: entry.id, entry.status)])
+        list.update([entry])
+        refreshChrome()
+    }
+
     /// A local read or star: through the engine, which also schedules a sync, or, while none is attached, straight
     /// into the store's queue for the next engine to push.
     private func record(_ changes: [PendingChange]) {
@@ -458,7 +468,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     // MARK: - Mark all
 
-    private func markAll() {
+    @objc func markAll(_ sender: Any?) {
         guard let plan = try? MarkAllPlan.plan(for: snapshot, store: store) else { return }
         let alert = NSAlert()
         alert.messageText = plan.prompt
@@ -562,20 +572,31 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             if current.commentsURL == nil { s.comments = ViewerContainer.noComments }
             s.showingComments = pane == .comments && prefs.value.layout == .single
             s.starred = current.starred
+            s.isRead = current.status != .unread
         } else {
             s.pane = ViewerContainer.noItem
             s.comments = ViewerContainer.noItem
             s.star = ViewerContainer.noItem
+            s.read = ViewerContainer.noItem
+            s.isRead = true
             s.openInBrowser = ViewerContainer.noItem
         }
-        if ((try? store.unreadCount(among: snapshot.ids)) ?? 0) == 0 { s.markAll = "Nothing unread in this list" }
-        if !undo.canUndo { s.undoMarkAll = "Nothing to undo" }
         return s
+    }
+
+    /// Why Mark All as Read is unavailable, or nil when it can run.
+    private var markAllUnavailable: String? {
+        ((try? store.unreadCount(among: snapshot.ids)) ?? 0) == 0 ? "Nothing unread in this list" : nil
     }
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let s = toolbarState()
         switch item.action {
+        case #selector(toggleRead(_:)):
+            item.title = s.isRead ? "Mark as Unread" : "Mark as Read"
+            item.toolTip = s.read
+            return s.read == nil
+        case #selector(markAll(_:)): item.toolTip = markAllUnavailable; return markAllUnavailable == nil
         case #selector(goNext(_:)): item.toolTip = s.next; return s.next == nil
         case #selector(goPrevious(_:)): item.toolTip = s.previous; return s.previous == nil
         case #selector(historyBack(_:)):

@@ -47,6 +47,7 @@ extension Action {
         case .previous: "Previous item"
         case .togglePane: "Switch page / comments"
         case .star: "Star"
+        case .toggleRead: "Mark read / unread"
         case .openInBrowser: "Open in browser"
         }
     }

@@ -20,7 +20,7 @@ public struct KeyCombo: Codable, Hashable, Sendable {
 
 /// The rebindable reading actions. Mark all is deliberately absent: it is never one keystroke away.
 public enum Action: String, Codable, CaseIterable, Sendable {
-    case next, previous, togglePane, star, openInBrowser
+    case next, previous, togglePane, star, toggleRead, openInBrowser
 }
 
 /// Which combo performs which action; each action has at most one combo and no combo serves two actions.
@@ -34,8 +34,20 @@ public struct KeyBindings: Codable, Equatable, Sendable {
         KeyCombo(key: "k"): .previous,
         KeyCombo(key: "c"): .togglePane,
         KeyCombo(key: "s"): .star,
+        KeyCombo(key: "u"): .toggleRead,
         KeyCombo(key: "o"): .openInBrowser,
     ])
+
+    private enum CodingKeys: String, CodingKey { case map }
+
+    /// Bindings saved before an action existed gain it on its default combo, unless something else holds that.
+    public init(from decoder: Decoder) throws {
+        map = try decoder.container(keyedBy: CodingKeys.self).decode([KeyCombo: Action].self, forKey: .map)
+        let bound = Set(map.values)
+        for (combo, action) in Self.default.map where !bound.contains(action) && map[combo] == nil {
+            map[combo] = action
+        }
+    }
 
     public func combo(for action: Action) -> KeyCombo? { map.first { $0.value == action }?.key }
 

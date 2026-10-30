@@ -11,6 +11,7 @@ final class KeyRouterTests: XCTestCase {
         XCTAssertEqual(KeyRouter.route(KeyCombo(key: "c"), editableFocused: false, bindings: .default), .togglePane)
         XCTAssertEqual(KeyRouter.route(KeyCombo(key: "s"), editableFocused: false, bindings: .default), .star)
         XCTAssertEqual(KeyRouter.route(KeyCombo(key: "o"), editableFocused: false, bindings: .default), .openInBrowser)
+        XCTAssertEqual(KeyRouter.route(KeyCombo(key: "u"), editableFocused: false, bindings: .default), .toggleRead)
     }
 
     func testUnmodifiedKeysSuppressedWhileEditing() {
@@ -63,5 +64,21 @@ final class KeyRouterTests: XCTestCase {
         XCTAssertNil(bindings.rebind(.star, to: KeyCombo(key: "f", modifiers: [.command, .shift])))
         let data = try JSONEncoder().encode(bindings)
         XCTAssertEqual(try JSONDecoder().decode(KeyBindings.self, from: data), bindings)
+    }
+
+    func testDecodedBindingsGainANewActionOnItsFreeDefaultCombo() throws {
+        var saved = KeyBindings.default
+        saved.map = saved.map.filter { $0.value != .toggleRead }
+        let decoded = try JSONDecoder().decode(KeyBindings.self, from: JSONEncoder().encode(saved))
+        XCTAssertEqual(decoded, .default)
+    }
+
+    func testDecodedBindingsLeaveANewActionUnboundWhenItsDefaultComboIsTaken() throws {
+        var saved = KeyBindings.default
+        saved.map = saved.map.filter { $0.value != .toggleRead }
+        XCTAssertNil(saved.rebind(.star, to: KeyCombo(key: "u")))
+        let decoded = try JSONDecoder().decode(KeyBindings.self, from: JSONEncoder().encode(saved))
+        XCTAssertEqual(decoded, saved)
+        XCTAssertNil(decoded.combo(for: .toggleRead))
     }
 }

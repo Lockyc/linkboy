@@ -29,9 +29,9 @@ final class PageKeyTests: XCTestCase {
 
     func testBindingsPageKeysAreTheUnmodifiedOnes() {
         var bindings = KeyBindings.default
-        XCTAssertEqual(bindings.pageKeys, ["c", "j", "k", "o", "s"])
+        XCTAssertEqual(bindings.pageKeys, ["c", "j", "k", "o", "s", "u"])
         bindings.rebind(.star, to: KeyCombo(key: "s", modifiers: [.command]))
         bindings.rebind(.next, to: KeyCombo(key: "\u{F701}", modifiers: [.shift]))
-        XCTAssertEqual(bindings.pageKeys, ["c", "k", "o", "shift+ArrowDown"])
+        XCTAssertEqual(bindings.pageKeys, ["c", "k", "o", "shift+ArrowDown", "u"])
     }
 }

@@ -180,6 +180,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ])
         main.items.last?.submenu?.delegate = self
         showBindings(prefs.value.bindings)
+        // The main window titles this "Mark as Read" while the open item is unread.
+        add("Item", [
+            item("Mark as Unread", #selector(MainWindowController.toggleRead(_:))),
+            .separator(),
+            item("Mark All as Read…", #selector(MainWindowController.markAll(_:))),
+        ])
         add("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Close", #selector(NSWindow.performClose(_:)), "w"),

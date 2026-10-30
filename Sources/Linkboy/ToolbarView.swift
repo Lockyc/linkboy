@@ -11,31 +11,31 @@ struct ToolbarState {
     var showingComments = false
     var star: String?
     var starred = false
+    /// The Mark Read / Mark Unread toggle.
+    var read: String?
+    var isRead = false
     var openInBrowser: String?
-    var markAll: String?
-    var undoMarkAll: String?
 }
 
-/// The fixed row above the list and viewer: Previous · Next · Page/Comments · Star · Open in Browser · Mark All… ·
-/// Undo Mark All. Controls keep their size and position in every state.
+/// The fixed row above the list and viewer: Previous · Next · Page/Comments · Star · Mark Unread · Open in
+/// Browser. Controls keep their size and position in every state.
 final class ToolbarView: NSView {
-    enum Action { case previous, next, page, comments, star, openInBrowser, markAll, undoMarkAll }
+    enum Action { case previous, next, page, comments, star, toggleRead, openInBrowser }
     var onAction: ((Action) -> Void)?
 
     private let previous = ToolbarView.button("Previous", symbol: "chevron.up")
     private let next = ToolbarView.button("Next", symbol: "chevron.down")
     private let pane = NSSegmentedControl(labels: ["Page", "Comments"], trackingMode: .selectOne, target: nil, action: nil)
     private let star = ToolbarView.button("Star", symbol: "star")
+    private let read = ToolbarView.button("Mark Unread", symbol: "circle")
     private let open = ToolbarView.button("Open in Browser", symbol: "safari")
-    private let markAll = ToolbarView.button("Mark All…", symbol: "checkmark.circle")
-    private let undoMarkAll = ToolbarView.button("Undo Mark All", symbol: "arrow.uturn.backward")
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         pane.selectedSegment = 0
         pane.segmentStyle = .rounded
-        for (control, action) in [(previous, Action.previous), (next, .next), (star, .star), (open, .openInBrowser),
-                                  (markAll, .markAll), (undoMarkAll, .undoMarkAll)] {
+        for (control, action) in [(previous, Action.previous), (next, .next), (star, .star), (read, .toggleRead),
+                                  (open, .openInBrowser)] {
             control.target = self
             control.action = #selector(clicked(_:))
             control.tag = tags.firstIndex(of: action)!
@@ -43,10 +43,11 @@ final class ToolbarView: NSView {
         pane.target = self
         pane.action = #selector(paneChanged)
         star.widthAnchor.constraint(equalToConstant: 92).isActive = true
+        read.widthAnchor.constraint(equalToConstant: 124).isActive = true
 
         let spacer = NSView()
         spacer.setContentHuggingPriority(.init(1), for: .horizontal)
-        let row = NSStackView(views: [previous, next, pane, star, open, spacer, markAll, undoMarkAll])
+        let row = NSStackView(views: [previous, next, pane, star, read, open, spacer])
         row.orientation = .horizontal
         row.spacing = 8
         row.edgeInsets = NSEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
@@ -66,11 +67,12 @@ final class ToolbarView: NSView {
         Self.set(previous, s.previous)
         Self.set(next, s.next)
         Self.set(open, s.openInBrowser)
-        Self.set(markAll, s.markAll)
-        Self.set(undoMarkAll, s.undoMarkAll)
         Self.set(star, s.star)
         star.title = s.starred ? "Starred" : "Star"
         star.image = NSImage(systemSymbolName: s.starred ? "star.fill" : "star", accessibilityDescription: nil)
+        Self.set(read, s.read)
+        read.title = s.isRead ? "Mark Unread" : "Mark Read"
+        read.image = NSImage(systemSymbolName: s.isRead ? "circle" : "circle.fill", accessibilityDescription: nil)
 
         pane.isEnabled = s.pane == nil
         pane.toolTip = s.pane
@@ -79,7 +81,7 @@ final class ToolbarView: NSView {
         pane.selectedSegment = s.showingComments ? 1 : 0
     }
 
-    private let tags: [Action] = [.previous, .next, .star, .openInBrowser, .markAll, .undoMarkAll]
+    private let tags: [Action] = [.previous, .next, .star, .toggleRead, .openInBrowser]
 
     @objc private func clicked(_ sender: NSButton) { onAction?(tags[sender.tag]) }
 
