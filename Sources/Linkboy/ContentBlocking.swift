@@ -48,19 +48,27 @@ final class ContentRules {
         if let list { controller.add(list) }
     }
 
+    /// An empty array means no rules: WebKit refuses to compile one.
     private func compile(_ source: String) async -> String? {
-        do {
-            guard let compiled = try await WKContentRuleListStore.default()
-                .compileContentRuleList(forIdentifier: Self.identifier, encodedContentRuleList: source)
-            else { return "The rules didn't compile" }
-            list = compiled
-            for c in controllers.allObjects {
-                c.removeAllContentRuleLists()
-                c.add(compiled)
+        let compiled: WKContentRuleList?
+        if let parsed = try? JSONSerialization.jsonObject(with: Data(source.utf8)) as? [Any], parsed.isEmpty {
+            compiled = nil
+        } else {
+            do {
+                guard let list = try await WKContentRuleListStore.default()
+                    .compileContentRuleList(forIdentifier: Self.identifier, encodedContentRuleList: source)
+                else { return "The rules didn't compile" }
+                compiled = list
+            } catch {
+                // WebKit puts the compiler's message ("Rule list compilation failed: …") in the help anchor.
+                return (error as NSError).helpAnchor ?? error.localizedDescription
             }
-            return nil
-        } catch {
-            return error.localizedDescription
         }
+        list = compiled
+        for c in controllers.allObjects {
+            c.removeAllContentRuleLists()
+            if let compiled { c.add(compiled) }
+        }
+        return nil
     }
 }
