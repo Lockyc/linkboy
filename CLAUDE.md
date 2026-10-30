@@ -18,7 +18,7 @@ v0.1.0. The repo is public: tracked files carry no hostnames, usernames or machi
 ## Layout
 
 - `Sources/LinkboyCore/` — Foundation, GRDB and Security only; never AppKit, WebKit or SwiftUI.
-  **Every unit test lives here.**
+  Every decision the unit tests cover lives here; the AppKit target has no tests.
 - `Sources/Linkboy/` — the AppKit executable (Sparkle for updates).
 - `Tests/LinkboyCoreTests/` — XCTest, `swift test`.
 - `Support/Info.plist` — bundle template; `just bundle` stamps `VERSION` into it.
@@ -41,9 +41,8 @@ v0.1.0. The repo is public: tracked files carry no hostnames, usernames or machi
 - Branches: `main` + `dev`. Work lands on `dev`; a release fast-forwards `main` from `dev`
   (`git merge --ff-only dev`). Docs-only changes may land on `main` and are forward-merged into
   `dev` immediately.
-- Version: the root `VERSION` file is the only source; `just bundle` stamps it into the bundle.
-- Release: the fleet tool's `lockstep.sh release linkboy` (no release recipe here) tags
-  `v<VERSION>` and publishes a GitHub release with notes, `linkboy.zip` and the Sparkle
-  `appcast.xml` that `SUFeedURL` reads. The release interface it needs: `just gate`, `VERSION`,
+- Version: the root `VERSION` file is the only source; `just bundle` stamps it into the bundle. A
+  release tags `v<VERSION>` and publishes a GitHub release with notes, `linkboy.zip` and the
+  Sparkle `appcast.xml` that `SUFeedURL` reads. The release interface: `just gate`, `VERSION`,
   `just bundle` (signs with `APPLE_SIGNING_IDENTITY`, hardened runtime, nested Sparkle helpers
   re-signed; ad-hoc without it), the `app` and `info_plist` variables, `just sparkle-bin`.

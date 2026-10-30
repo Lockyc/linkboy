@@ -14,8 +14,10 @@ reorders under you: items you have read stay in place until you refresh.
 ## Requirements
 
 - macOS 14 or later.
-- A Miniflux server and an API key: in Miniflux, **Settings → API Keys → Create a new API key**.
-  linkboy asks for the server URL and key on first launch and keeps the key in the Keychain.
+- Miniflux 2.0.49 or later (the first with the `changed_after` entries filter) and an API key:
+  in Miniflux, **Settings → API Keys → Create a new API key**. linkboy asks for the server URL and
+  key on first launch and keeps the key in the Keychain. The server must be `https://`; plain
+  `http://` is accepted only for a local server (`localhost`, a `.local` name or an IP address).
 
 ## Install
 
@@ -34,15 +36,22 @@ Installs the notarized app to `/Applications/linkboy.app`. It updates itself aft
 | `c` | Toggle page / comments |
 | `s` | Star |
 | `o` | Open in the default browser |
-| `⌘[` / `⌘]` | Back / forward in the focused view |
+| `⌘[` / `⌘]` | Back / forward in the focused view (fixed) |
+| `⌘R` | Sync now (fixed) |
 
-All reading keys are rebindable in Settings and work while a web page has focus, except when you
-are typing in one of its fields. Marking everything read has no key: it asks first, naming the
-count, and can be undone with `⌘Z`.
+`j`, `k`, `c`, `s` and `o` are rebindable in Settings and work while a web page has focus, except
+when you are typing in one of its fields. Mouse side buttons go back and forward in the view under
+the pointer, and ⌘-click opens a link in the default browser. Marking everything read has no key:
+it asks first, naming the count, and can be undone with `⌘Z` or the toolbar's **Undo Mark All**.
 
 ## Status
 
 Pre-1.0 and not yet released; the first release will be v0.1.0.
+
+## Roadmap
+
+- Per-feed filtering — not yet. Unlock: a feed list from `/v1/feeds` in the scope switcher (it
+  lists categories today).
 
 ## Build & test
 

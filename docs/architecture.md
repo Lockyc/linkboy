@@ -20,7 +20,8 @@ what spans them.
 `LinkboyCore` imports Foundation, GRDB and Security only. Anything that needs AppKit or WebKit
 sits in `Linkboy` and takes its decisions from a Core function, so the decision is unit-tested:
 `KeyRouter.route` (whether a key is an action), `LinkPolicy` (where a navigation goes),
-`KeyBindings.pageKeys` (what the in-page script listens for), `MarkAllPlan`, `Snapshot`.
+`KeyBindings.pageKeys` and `PageKeyScript` (the in-page listener itself, run under JavaScriptCore
+in the tests), `MarkAllPlan`, `Snapshot`, `Credentials.serverURL`.
 
 ## Data flow
 
@@ -28,7 +29,9 @@ Miniflux (`MinifluxClient`, native `/v1` API, API key in the Keychain via `Crede
 the source of truth. `Store` (SQLite) holds entries and a pending-change queue, so the list and
 navigation never wait on the network. A local read or star writes the store and the queue
 immediately; `SyncEngine` pushes the queue, then pulls changes. A pending local change wins
-until the server acknowledges it; otherwise server state wins.
+until the server acknowledges it; otherwise server state wins. While Miniflux rejects the key,
+reads and stars keep landing in the store and queue but trigger no sync; setup opens once per
+rejection, and re-entering the key attaches a fresh engine that pushes the queue.
 
 ## The snapshot rule
 
@@ -40,8 +43,9 @@ the snapshot; arrivals only raise `newCount` and join on an explicit re-take.
 
 Never bound to a key (`Action` has no such case). `MarkAllPlan.plan(for:store:)` lists the
 snapshot's still-unread IDs, the confirmation states that count and scope, and the write is
-`PUT /v1/entries` with exactly that ID list, never the server's mark-all. `UndoLedger` restores
-exactly that set to unread.
+`PUT /v1/entries` with exactly that ID list, never the server's mark-all. `UndoLedger` remembers
+each plan; undo (⌘Z or the toolbar's Undo Mark All) takes the latest back and
+`MainWindowController.apply` writes exactly that set back to unread.
 
 ## Keys
 
@@ -50,17 +54,21 @@ page. Two paths share one rule (unmodified keys belong to an editable element; �
 always route):
 
 - App-side: `KeyRouter.route` with the focus state the app reports.
-- In-page: `FocusProbe`'s capturing listener runs in every frame, in linkboy's own content
-  world, and posts a bound key to the app only when the deepest focused element (through open
-  shadow roots) is not a text control. `KeyBindings.pageKeys` supplies the key names.
+- In-page: `PageKeyScript`'s capturing listener runs in every frame, in linkboy's own content
+  world (`FocusProbe`), and posts a bound key to the app only when the deepest focused element
+  (through open shadow roots) is not a text control. `KeyBindings.pageKeys` supplies the key
+  names. A web view counts as holding the keyboard only once a document has committed, so a page
+  that never loaded can't swallow keys.
 
 ## Web views
 
 Page, comments and prefetch viewers are all `WebViewer`, sharing the one persistent
 `WKWebsiteDataStore.default()`, so logins survive relaunches. ⌘-click and new-window requests go
 through `LinkPolicy` to the default browser, which has its own separate logins. `Prefetcher`
-loads the next item's page and comments offscreen with that same construction; it loads only the
-item's own two URLs (GET, no forms), and `Snapshot.prefetchTargets` picks them. Content
+loads the next item's page and comments offscreen with that same construction; it loads the
+item's two URLs, which `Snapshot.prefetchTargets` picks, and nothing blocks the page's own scripts
+from navigating a hidden viewer further. Article pages may be plain http
+(`NSAllowsArbitraryLoadsInWebContent`); the Miniflux server must be https unless it is local. Content
 blocking is a `WKContentRuleList` built from a user-editable rule source (`ContentBlocking`).
 
 ## No animation
