@@ -374,6 +374,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private func open(index: Int) {
         guard snapshot.ids.indices.contains(index),
               var entry = (try? store.entries(ids: [snapshot.ids[index]]))?.first else { return }
+        let movesForward = current.flatMap { snapshot.ids.firstIndex(of: $0.id) }.map { $0 < index } ?? true
         snapshot.cursor = index
         if entry.status == .unread {
             entry.status = .read
@@ -389,7 +390,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         current = entry
         pane = .page
         list.select(row: index)
-        viewer.show(entry: entry, layout: prefs.value.layout, pane: pane)
+        viewer.show(entry: entry, layout: prefs.value.layout, pane: pane, usePrefetched: movesForward)
+        viewer.prefetcher.prepare(after: entry, in: snapshot) { [store] ids in (try? store.entries(ids: ids)) ?? [] }
         refreshChrome()
     }
 

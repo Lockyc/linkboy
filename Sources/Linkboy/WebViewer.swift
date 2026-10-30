@@ -40,18 +40,24 @@ final class WebViewer: NSView, WKNavigationDelegate, WKUIDelegate {
     /// Swaps in a fresh, blank web view, dropping the old one with its history. If the old view had keyboard focus,
     /// the viewer keeps it and hands it to the new page once that page commits.
     func resetHistory() {
-        let old = webView
         let hadFocus = containsFirstResponder
+        tearDown(webView)
+        webView = Self.makeWebView()
+        committed = false
+        install(webView)
+        if hadFocus { window?.makeFirstResponder(self) }
+    }
+
+    /// Releases the page for good; the viewer is left blank and is not used again.
+    func discard() { tearDown(webView) }
+
+    private func tearDown(_ old: WKWebView) {
         old.stopLoading()
         old.configuration.userContentController.removeScriptMessageHandler(forName: FocusProbe.message,
                                                                            contentWorld: FocusProbe.world)
         old.navigationDelegate = nil
         old.uiDelegate = nil
         old.removeFromSuperview()
-        webView = Self.makeWebView()
-        committed = false
-        install(webView)
-        if hadFocus { window?.makeFirstResponder(self) }
     }
 
     /// Gives this viewer keyboard focus: its page once committed, otherwise the viewer itself.

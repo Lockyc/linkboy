@@ -29,6 +29,12 @@ public struct Snapshot: Sendable {
         return ids[cursor - 1]
     }
 
+    /// The next `depth` ids after `id` in list order; empty at the end, for an unknown id or a depth below 1.
+    public func prefetchTargets(after id: Int64, depth: Int) -> [Int64] {
+        guard depth > 0, let index = ids.firstIndex(of: id) else { return [] }
+        return Array(ids.dropFirst(index + 1).prefix(depth))
+    }
+
     /// Counts ids that are not in the list and not already counted; they do not join it.
     public mutating func noteArrivals(_ incoming: [Int64]) {
         let known = Set(ids)

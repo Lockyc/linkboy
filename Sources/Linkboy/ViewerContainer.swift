@@ -7,7 +7,7 @@ enum ViewerPane {
 
 /// The reading area: a page viewer and a comments viewer per item, shown one at a time (single layout) or
 /// side by side. Switching pane or layout only shows and hides them, keeping each one's scroll and history;
-/// moving to another item gives both fresh web views.
+/// moving to another item gives both fresh web views, or the ones `prefetcher` already loaded for it.
 final class ViewerContainer: NSView, NSSplitViewDelegate {
     static let noComments = "This item has no comments link"
     static let noItem = "No item selected"
@@ -20,8 +20,11 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
     }
     var splitFraction: Double = 0.5
 
-    let pageViewer = WebViewer()
-    let commentsViewer = WebViewer()
+    /// Replaced (never mutated in place) when a prefetched pair is adopted.
+    private(set) var pageViewer = WebViewer()
+    private(set) var commentsViewer = WebViewer()
+    /// Loads the next item offscreen; `show(…, usePrefetched: true)` adopts what it holds for that item.
+    let prefetcher = Prefetcher()
     private let split = NSSplitView()
     private let commentsSlot = NSView()
     /// Covers the whole viewer: no item, or (single layout) an item with no comments link.
@@ -48,9 +51,17 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    func show(entry: Entry, layout: Layout, pane: ViewerPane) {
+    /// `usePrefetched` applies only when this moves to a different item (moving forward): the item's prefetched
+    /// viewers, if any, replace fresh ones.
+    func show(entry: Entry, layout: Layout, pane: ViewerPane, usePrefetched: Bool = false) {
+        var restoreFocus = false
         if entry.id != entryID {
-            reset()
+            if usePrefetched, let taken = prefetcher.take(for: entry) {
+                restoreFocus = pageViewer.containsFirstResponder || commentsViewer.containsFirstResponder
+                adopt(taken)
+            } else {
+                reset()
+            }
             entryID = entry.id
         }
         arrange(layout)
@@ -73,10 +84,12 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
             loadComments(entry)
         }
         commentsCover.isHidden = entry.commentsURL != nil || layout == .single
+        if restoreFocus { focusedViewer.takeFocus() }
     }
 
     /// The empty viewer, in whichever layout is current.
     func showEmpty(layout: Layout) {
+        prefetcher.discardAll()
         reset()
         entryID = nil
         arrange(layout)
@@ -120,6 +133,34 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
         commentsLoaded = false
     }
 
+    /// Swaps in prefetched viewers as this item's: already loading, so they count as loaded and their history
+    /// starts at that load. A side the item doesn't have prefetched is reset as usual.
+    private func adopt(_ taken: Prefetcher.Viewers) {
+        if let page = taken.page {
+            pageViewer.discard()
+            pageViewer.removeFromSuperview()
+            pageViewer = page
+            page.onPageKey = onPageKey
+            pageLoaded = true
+            layoutMode = nil // the page viewer's host changed; `arrange` rebuilds
+        } else {
+            pageViewer.resetHistory()
+            pageLoaded = false
+        }
+        if let comments = taken.comments {
+            commentsViewer.discard()
+            commentsViewer.removeFromSuperview()
+            commentsViewer = comments
+            comments.onPageKey = onPageKey
+            commentsSlot.addSubview(comments, positioned: .below, relativeTo: commentsCover)
+            constrain(comments, to: commentsSlot)
+            commentsLoaded = true
+        } else {
+            commentsViewer.resetHistory()
+            commentsLoaded = false
+        }
+    }
+
     private func loadPage(_ entry: Entry) {
         guard !pageLoaded else { return }
         pageLoaded = true
@@ -160,8 +201,12 @@ final class ViewerContainer: NSView, NSSplitViewDelegate {
     }
 
     private func pin(_ child: NSView, in host: NSView) {
-        child.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(child)
+        constrain(child, to: host)
+    }
+
+    private func constrain(_ child: NSView, to host: NSView) {
+        child.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             child.leadingAnchor.constraint(equalTo: host.leadingAnchor),
             child.trailingAnchor.constraint(equalTo: host.trailingAnchor),

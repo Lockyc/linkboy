@@ -54,6 +54,24 @@ final class SnapshotTests: XCTestCase {
         XCTAssertNil(snap.cursor)
     }
 
+    func testPrefetchTargetsNextOnly() throws {
+        let snap = try Snapshot.take(.unread(category: nil, feed: nil), store: seeded())
+        XCTAssertEqual(snap.prefetchTargets(after: 3, depth: 1), [2])
+    }
+
+    func testPrefetchTargetsEmptyAtEnd() throws {
+        let snap = try Snapshot.take(.unread(category: nil, feed: nil), store: seeded())
+        XCTAssertEqual(snap.prefetchTargets(after: 1, depth: 1), [])
+        XCTAssertEqual(snap.prefetchTargets(after: 99, depth: 1), [])
+    }
+
+    func testPrefetchTargetsRespectsDepth() throws {
+        let snap = try Snapshot.take(.unread(category: nil, feed: nil), store: seeded())
+        XCTAssertEqual(snap.prefetchTargets(after: 3, depth: 2), [2, 1])
+        XCTAssertEqual(snap.prefetchTargets(after: 2, depth: 5), [1])
+        XCTAssertEqual(snap.prefetchTargets(after: 3, depth: 0), [])
+    }
+
     func testReadItemStaysInSnapshot() throws {
         let store = try seeded()
         var snap = try Snapshot.take(.unread(category: nil, feed: nil), store: store)
