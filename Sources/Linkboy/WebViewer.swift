@@ -1,4 +1,5 @@
 import AppKit
+import LinkboyCore
 import WebKit
 
 /// One logged-in web pane. Every web view shares the persistent `WKWebsiteDataStore.default()`, presents a
@@ -104,23 +105,30 @@ final class WebViewer: NSView, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        if navigationAction.navigationType == .linkActivated, navigationAction.modifierFlags.contains(.command),
-           let url = navigationAction.request.url {
-            NSWorkspace.shared.open(url)
-            return decisionHandler(.cancel)
-        }
-        decisionHandler(.allow)
+        let handled = route(navigationAction, opensNewWindow: navigationAction.targetFrame == nil, in: webView)
+        decisionHandler(handled ? .cancel : .allow)
     }
 
-    /// `target=_blank` and `window.open`: ⌘ sends the link to the default browser, otherwise it opens here.
+    /// `window.open` (and any `target=_blank` link the policy check let through) — never a new web view.
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if navigationAction.modifierFlags.contains(.command), let url = navigationAction.request.url {
-            NSWorkspace.shared.open(url)
-        } else {
-            webView.load(navigationAction.request)
-        }
+        _ = route(navigationAction, opensNewWindow: true, in: webView)
         return nil
+    }
+
+    /// Carries out `LinkPolicy`'s decision; true when the original navigation should be cancelled.
+    private func route(_ action: WKNavigationAction, opensNewWindow: Bool, in webView: WKWebView) -> Bool {
+        switch LinkPolicy.decide(command: action.modifierFlags.contains(.command),
+                                 linkActivated: action.navigationType == .linkActivated, opensNewWindow: opensNewWindow) {
+        case .openExternally:
+            if let url = action.request.url { NSWorkspace.shared.open(url) }
+            return true
+        case .loadHere:
+            webView.load(action.request)
+            return true
+        case .allow:
+            return false
+        }
     }
 }
 
