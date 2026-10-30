@@ -68,12 +68,15 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    /// Starts syncing with `api`, replacing any previous engine. `newServer` empties the local cache first:
-    /// another server's entry ids, queued changes and last-sync mark mean nothing there.
+    /// Starts syncing with `api`, replacing any previous engine once it has fully shut down. `newServer` empties
+    /// the local cache in between: another server's entry ids, queued changes and last-sync mark mean nothing
+    /// there. Until the new engine is attached, reading changes stay local.
     func attach(api: MinifluxAPI, newServer: Bool = false) {
         events?.cancel()
         let old = engine
+        engine = nil
         generation += 1
+        let generation = generation
         self.api = api
         if newServer {
             categories = nil
@@ -84,18 +87,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             viewer.showEmpty(layout: prefs.value.layout)
         }
         categoriesLoading = false
-        let engine = SyncEngine(api: api, store: store)
-        self.engine = engine
         setStatus("Updating…")
         Task { @MainActor [weak self] in
-            await old?.stop()
-            guard let self, self.engine === engine else { return }
+            await old?.shutdown()
+            guard let self, self.generation == generation else { return }
             if newServer {
                 do { try self.store.reset() } catch { self.setStatus("Couldn't clear the local cache: \(error.localizedDescription)") }
                 self.take(.unread(category: nil, feed: nil))
                 self.rebuildScopeMenu()
                 self.refreshChrome()
             }
+            let engine = SyncEngine(api: api, store: self.store)
+            self.engine = engine
             self.events = Task { @MainActor [weak self] in
                 for await outcome in engine.events { self?.handle(outcome) }
             }
