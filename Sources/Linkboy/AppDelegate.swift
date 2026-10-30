@@ -1,24 +1,83 @@
 import AppKit
+import LinkboyCore
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var window: NSWindow?
+    private let prefs = PreferencesModel()
+    private var setup: SetupWindowController?
+    private var main: MainWindowController?
+    private var settings: SettingsWindowController?
+    private var credentials: Credentials?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.mainMenu = Self.makeMainMenu()
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1100, height: 700),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered, defer: false)
-        window.title = "linkboy"
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        self.window = window
+        NSApp.mainMenu = makeMainMenu()
+        do {
+            if let saved = try CredentialStore.load(), let url = Credentials.serverURL(from: saved.baseURL.absoluteString) {
+                let c = Credentials(baseURL: url, apiKey: saved.apiKey)
+                openMain(c, client: MinifluxClient(baseURL: c.baseURL, apiKey: c.apiKey))
+            } else {
+                showSetup(error: nil)
+            }
+        } catch {
+            showSetup(error: "Couldn't read the saved login from the Keychain")
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
-    private static func makeMainMenu() -> NSMenu {
+    private func showSetup(error: String?) {
+        let setup = self.setup ?? SetupWindowController()
+        self.setup = setup
+        setup.onConnected = { [weak self] c, client in self?.connected(c, client: client) }
+        setup.present(prefill: credentials, error: error)
+    }
+
+    private func connected(_ c: Credentials, client: MinifluxClient) {
+        do {
+            try CredentialStore.save(c)
+        } catch {
+            alert("Couldn't save the login to the Keychain", detail: "linkboy will ask for it again next launch.")
+        }
+        if let main {
+            credentials = c
+            main.attach(api: client)
+        } else {
+            openMain(c, client: client)
+        }
+    }
+
+    private func openMain(_ c: Credentials, client: MinifluxClient) {
+        credentials = c
+        do {
+            let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
+                                                      appropriateFor: nil, create: true)
+            let store = try Store(path: support.appendingPathComponent("linkboy/linkboy.sqlite"))
+            let main = try MainWindowController(store: store, preferences: prefs)
+            main.onUnauthorized = { [weak self] in self?.showSetup(error: "Miniflux rejected the API key") }
+            self.main = main
+            main.attach(api: client)
+            main.showWindow(nil)
+        } catch {
+            alert("Couldn't open the local cache", detail: error.localizedDescription)
+            NSApp.terminate(nil)
+        }
+    }
+
+    @objc private func showSettings(_ sender: Any?) {
+        let settings = self.settings ?? SettingsWindowController(model: prefs)
+        self.settings = settings
+        settings.present()
+    }
+
+    private func alert(_ message: String, detail: String) {
+        let a = NSAlert()
+        a.messageText = message
+        a.informativeText = detail
+        a.window.animationBehavior = .none
+        a.runModal()
+    }
+
+    private func makeMainMenu() -> NSMenu {
         let main = NSMenu()
         func add(_ title: String, _ items: [NSMenuItem]) {
             let host = NSMenuItem()
@@ -32,14 +91,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             i.keyEquivalentModifierMask = mods
             return i
         }
+        let settingsItem = item("Settings…", #selector(showSettings(_:)), ",")
+        settingsItem.target = self
         add("linkboy", [
             item("About linkboy", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            .separator(),
+            settingsItem,
             .separator(),
             item("Hide linkboy", #selector(NSApplication.hide(_:)), "h"),
             item("Hide Others", #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
             .separator(),
             item("Quit linkboy", #selector(NSApplication.terminate(_:)), "q"),
         ])
+        // The main window's undo manager names its action, so this reads "Undo Mark All" there.
         add("Edit", [
             item("Undo", Selector(("undo:")), "z"),
             item("Redo", Selector(("redo:")), "z", [.command, .shift]),
@@ -49,10 +113,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item("Paste", #selector(NSText.paste(_:)), "v"),
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
+        // Key equivalents for reading come from the key router, not the menu.
+        add("Go", [
+            item("Next", #selector(MainWindowController.goNext(_:))),
+            item("Previous", #selector(MainWindowController.goPrevious(_:))),
+        ])
         add("Window", [
             item("Minimize", #selector(NSWindow.performMiniaturize(_:)), "m"),
             item("Close", #selector(NSWindow.performClose(_:)), "w"),
         ])
+        NSApp.windowsMenu = main.items.last?.submenu
         return main
     }
 }
