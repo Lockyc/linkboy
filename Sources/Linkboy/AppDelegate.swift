@@ -1,7 +1,9 @@
 import AppKit
 import LinkboyCore
+import Sparkle
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
+    private let updater = Updater.make()
     private let prefs = PreferencesModel()
     private var setup: SetupWindowController?
     private var main: MainWindowController?
@@ -122,8 +124,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settingsItem.target = self
         let changeServerItem = item("Change Server…", #selector(changeServer(_:)))
         changeServerItem.target = self
+        let updatesItem = item("Check for Updates…", nil)
+        if let updater {
+            updatesItem.target = updater
+            updatesItem.action = #selector(SPUStandardUpdaterController.checkForUpdates(_:))
+        } else {
+            updatesItem.isEnabled = false
+            updatesItem.toolTip = "Only the installed linkboy.app updates itself"
+        }
         add("linkboy", [
             item("About linkboy", #selector(NSApplication.orderFrontStandardAboutPanel(_:))),
+            updatesItem,
             .separator(),
             settingsItem,
             changeServerItem,

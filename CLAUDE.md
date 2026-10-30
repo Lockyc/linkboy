@@ -11,8 +11,9 @@ links:
 # linkboy — agent notes
 
 Fast, keyboard-driven macOS reader for link-aggregator feeds on Miniflux — each item's page and
-its comments, in logged-in web views. Swift package, AppKit, macOS 14+. Early development (v0.1
-in progress). The repo is public: tracked files carry no hostnames, usernames or machine paths.
+its comments, in logged-in web views. Swift package, AppKit, macOS 14+. Pre-1.0, unreleased until
+v0.1.0. The repo is public: tracked files carry no hostnames, usernames or machine paths. Read
+[docs/architecture.md](docs/architecture.md) before changing reading, keys, sync or web views.
 
 ## Layout
 
@@ -22,20 +23,27 @@ in progress). The repo is public: tracked files carry no hostnames, usernames or
 - `Tests/LinkboyCoreTests/` — XCTest, `swift test`.
 - `Support/Info.plist` — bundle template; `just bundle` stamps `VERSION` into it.
 - `Support/icon.svg` — icon master; `just icons` renders `AppIcon.icns` and `icon.png`.
+- `install.sh` — the curl-pipeable installer (latest release's `linkboy.zip`, team ID and
+  notarization checked); `.claude/commands/linkboy/install.md` drives it.
 
 ## Invariants
 
 - Bundle ID `com.lockyc.linkboy`, executable `Linkboy`, display name `linkboy`, Keychain service
   `com.lockyc.linkboy`; fixed from the first release.
 - Miniflux native REST API (`/v1/…`, `X-Auth-Token`) only.
-- No animations: no `NSAnimationContext` durations above 0, `animator()` proxies or implicit
-  layer animations.
-- Controls never move or disappear with state; unavailable means disabled in place with a tooltip.
-- All web views share the one persistent `WKWebsiteDataStore.default()`.
+- No animations; controls never move or disappear with state (unavailable means disabled in place
+  with a tooltip); all web views share one persistent data store — see the architecture doc.
 
 ## Build, test, verify, branches
 
 - `just test`, `just gate`; `just run` builds and launches `build/linkboy.app`.
 - Verify UI changes by running the app (`just run`) and confirming the window renders as intended.
-- Branches: `main` + `dev`. Work lands on `dev`; a release fast-forwards `main` from `dev`.
+- Branches: `main` + `dev`. Work lands on `dev`; a release fast-forwards `main` from `dev`
+  (`git merge --ff-only dev`). Docs-only changes may land on `main` and are forward-merged into
+  `dev` immediately.
 - Version: the root `VERSION` file is the only source; `just bundle` stamps it into the bundle.
+- Release: the fleet tool's `lockstep.sh release linkboy` (no release recipe here) tags
+  `v<VERSION>` and publishes a GitHub release with notes, `linkboy.zip` and the Sparkle
+  `appcast.xml` that `SUFeedURL` reads. The release interface it needs: `just gate`, `VERSION`,
+  `just bundle` (signs with `APPLE_SIGNING_IDENTITY`, hardened runtime, nested Sparkle helpers
+  re-signed; ad-hoc without it), the `app` and `info_plist` variables, `just sparkle-bin`.

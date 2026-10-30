@@ -9,8 +9,9 @@ default:
 test:
     swift test
 
-# Pre-merge gate: build everything and run the tests
+# Pre-merge gate: lint the installer, build everything and run the tests
 gate:
+    shellcheck install.sh
     swift build
     swift test
 
