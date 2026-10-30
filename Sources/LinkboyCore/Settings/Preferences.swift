@@ -17,8 +17,25 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var splitFraction: Double = 0.5
     public var listFontSize: Double = 13
     public var density: Density = .regular
+    public var bindings: KeyBindings = .default
 
     public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case layout, listWidth, splitFraction, listFontSize, density, bindings
+    }
+
+    /// A missing field takes its default, so a value saved before a field existed keeps everything else.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Preferences()
+        layout = try c.decodeIfPresent(Layout.self, forKey: .layout) ?? d.layout
+        listWidth = try c.decodeIfPresent(Double.self, forKey: .listWidth) ?? d.listWidth
+        splitFraction = try c.decodeIfPresent(Double.self, forKey: .splitFraction) ?? d.splitFraction
+        listFontSize = try c.decodeIfPresent(Double.self, forKey: .listFontSize) ?? d.listFontSize
+        density = try c.decodeIfPresent(Density.self, forKey: .density) ?? d.density
+        bindings = try c.decodeIfPresent(KeyBindings.self, forKey: .bindings) ?? d.bindings
+    }
 
     static let key = "preferences"
 

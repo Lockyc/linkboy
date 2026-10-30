@@ -32,4 +32,30 @@ final class PreferencesTests: XCTestCase {
         changed.save(to: defaults)
         XCTAssertEqual(Preferences.load(from: defaults), changed)
     }
+
+    func testPreferencesDecodeWithoutBindingsKeepsOtherFields() throws {
+        let saved = #"{"layout":"sideBySide","listWidth":410,"splitFraction":0.6,"listFontSize":15,"density":"compact"}"#
+        defaults.set(Data(saved.utf8), forKey: Preferences.key)
+        let prefs = Preferences.load(from: defaults)
+        XCTAssertEqual(prefs.layout, .sideBySide)
+        XCTAssertEqual(prefs.listWidth, 410)
+        XCTAssertEqual(prefs.splitFraction, 0.6)
+        XCTAssertEqual(prefs.listFontSize, 15)
+        XCTAssertEqual(prefs.density, .compact)
+        XCTAssertEqual(prefs.bindings, .default)
+    }
+
+    func testPreferencesDecodeFillsEachMissingFieldWithItsDefault() throws {
+        let prefs = try JSONDecoder().decode(Preferences.self, from: Data(#"{"listWidth":250}"#.utf8))
+        var expected = Preferences()
+        expected.listWidth = 250
+        XCTAssertEqual(prefs, expected)
+    }
+
+    func testBindingsRoundTripThroughPreferences() {
+        var prefs = Preferences()
+        XCTAssertNil(prefs.bindings.rebind(.next, to: KeyCombo(key: "n")))
+        prefs.save(to: defaults)
+        XCTAssertEqual(Preferences.load(from: defaults).bindings, prefs.bindings)
+    }
 }
