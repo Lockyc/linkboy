@@ -36,6 +36,6 @@ in progress). The repo is public: tracked files carry no hostnames, usernames or
 ## Build, test, verify, branches
 
 - `just test`, `just gate`; `just run` builds and launches `build/linkboy.app`.
-- Verify UI changes in the running app with `winshot`.
+- Verify UI changes by running the app (`just run`) and confirming the window renders as intended.
 - Branches: `main` + `dev`. Work lands on `dev`; a release fast-forwards `main` from `dev`.
 - Version: the root `VERSION` file is the only source; `just bundle` stamps it into the bundle.
