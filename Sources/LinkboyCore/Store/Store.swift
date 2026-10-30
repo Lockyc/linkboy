@@ -50,12 +50,23 @@ public final class Store: Sendable {
 
     /// Entries in the order of `ids`; unknown ids are skipped.
     public func entries(ids: [Int64]) throws -> [Entry] {
-        try pool.read { db in
-            try ids.compactMap { id in
-                try Row.fetchOne(db, sql: "SELECT * FROM entry WHERE id = ?", arguments: [id]).flatMap(Self.entry)
+        let found = try pool.read { db in
+            var found: [Int64: Entry] = [:]
+            for start in stride(from: 0, to: ids.count, by: Self.idsPerQuery) {
+                let chunk = Array(ids[start..<min(start + Self.idsPerQuery, ids.count)])
+                let marks = Array(repeating: "?", count: chunk.count).joined(separator: ",")
+                for row in try Row.fetchAll(db, sql: "SELECT * FROM entry WHERE id IN (\(marks))",
+                                            arguments: StatementArguments(chunk)) {
+                    if let e = Self.entry(row) { found[e.id] = e }
+                }
             }
+            return found
         }
+        return ids.compactMap { found[$0] }
     }
+
+    /// Under SQLite's lowest default bound-parameter limit.
+    private static let idsPerQuery = 999
 
     /// Ids matching `scope`, newest published first (ties: higher id first). Removed entries never appear.
     public func entryIDs(matching scope: ListScope) throws -> [Int64] {
@@ -89,15 +100,32 @@ public final class Store: Sendable {
         }
     }
 
+    /// A local read or star: writes each change to its entry and queues it for the server, in one transaction.
+    public func record(_ changes: [PendingChange]) throws {
+        try pool.write { db in
+            for c in changes {
+                switch c {
+                case .status(let id, let s):
+                    try db.execute(sql: "UPDATE entry SET status = ? WHERE id = ?", arguments: [s.rawValue, id])
+                case .starred(let id, let v):
+                    try db.execute(sql: "UPDATE entry SET starred = ? WHERE id = ?", arguments: [v, id])
+                }
+                try Self.enqueue(c, in: db)
+            }
+        }
+    }
+
     /// Queues changes; a later change of the same kind for the same entry replaces the earlier one.
     public func enqueue(_ changes: [PendingChange]) throws {
         try pool.write { db in
-            for c in changes {
-                let (id, kind, value) = Self.columns(c)
-                try db.execute(sql: "DELETE FROM pendingChange WHERE entryID = ? AND kind = ?", arguments: [id, kind])
-                try db.execute(sql: "INSERT INTO pendingChange (entryID, kind, value) VALUES (?, ?, ?)", arguments: [id, kind, value])
-            }
+            for c in changes { try Self.enqueue(c, in: db) }
         }
+    }
+
+    private static func enqueue(_ c: PendingChange, in db: Database) throws {
+        let (id, kind, value) = columns(c)
+        try db.execute(sql: "DELETE FROM pendingChange WHERE entryID = ? AND kind = ?", arguments: [id, kind])
+        try db.execute(sql: "INSERT INTO pendingChange (entryID, kind, value) VALUES (?, ?, ?)", arguments: [id, kind, value])
     }
 
     public func pending() throws -> [PendingChange] {

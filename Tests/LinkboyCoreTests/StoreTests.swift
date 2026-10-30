@@ -34,6 +34,22 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(try store.entries(ids: [2, 99, 1]), [noComments, e])
     }
 
+    func testEntriesKeepRequestOrderAcrossQueryChunks() throws {
+        let store = try makeStore()
+        try store.upsert((1...2500).map { entry(Int64($0)) })
+        let ids = (1...2500).map(Int64.init).reversed() + [99_999]
+        XCTAssertEqual(try store.entries(ids: Array(ids)).map(\.id), Array(ids.dropLast()))
+    }
+
+    func testRecordWritesEntriesAndQueue() throws {
+        let store = try makeStore()
+        try store.upsert([entry(1), entry(2)])
+        try store.record([.status(id: 1, .read), .starred(id: 2, true)])
+        XCTAssertEqual(try store.entries(ids: [1, 2]).map(\.status), [.read, .unread])
+        XCTAssertEqual(try store.entries(ids: [1, 2]).map(\.starred), [false, true])
+        XCTAssertEqual(try store.pending(), [.status(id: 1, .read), .starred(id: 2, true)])
+    }
+
     func testUpsertPreservesLocalStatusWhilePending() throws {
         let store = try makeStore()
         try store.upsert([entry(1, status: .unread, starred: false)])

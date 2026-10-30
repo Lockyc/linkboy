@@ -69,14 +69,15 @@ public actor SyncEngine {
         await run(fromKick: false)
     }
 
-    public func markRead(_ ids: [Int64]) async { await record(.read, ids) }
-    public func markUnread(_ ids: [Int64]) async { await record(.unread, ids) }
+    public func markRead(_ ids: [Int64]) async { await record(ids.map { .status(id: $0, .read) }) }
+    public func markUnread(_ ids: [Int64]) async { await record(ids.map { .status(id: $0, .unread) }) }
+    public func setStarred(_ v: Bool, id: Int64) async { await record([.starred(id: id, v)]) }
 
-    public func setStarred(_ v: Bool, id: Int64) async {
+    /// Writes local changes to the store and its queue, then schedules a background sync to push them.
+    public func record(_ changes: [PendingChange]) async {
         guard !isShutDown else { return }
         do {
-            try store.setStarred(v, id: id)
-            try store.enqueue([.starred(id: id, v)])
+            try store.record(changes)
         } catch {
             continuation.yield(.failed(String(describing: error)))
             return
@@ -85,18 +86,6 @@ public actor SyncEngine {
     }
 
     // MARK: - Scheduling
-
-    private func record(_ status: EntryStatus, _ ids: [Int64]) async {
-        guard !isShutDown else { return }
-        do {
-            try store.setStatus(status, ids: ids)
-            try store.enqueue(ids.map { .status(id: $0, status) })
-        } catch {
-            continuation.yield(.failed(String(describing: error)))
-            return
-        }
-        kick()
-    }
 
     /// Schedules a background sync; kicks arriving before it starts coalesce into it.
     private func kick() {

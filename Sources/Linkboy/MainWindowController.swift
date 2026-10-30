@@ -35,7 +35,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private var settingSplit = false
     private var monitors: [Any] = []
 
-    private static let noItem = "No item selected"
     private static let categoriesOffline = "Categories unavailable offline"
 
     init(store: Store, preferences: PreferencesModel) throws {
@@ -385,13 +384,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         snapshot.cursor = index
         if entry.status == .unread {
             entry.status = .read
-            let id = entry.id
-            if let engine {
-                Task { @MainActor [weak self] in
-                    await engine.markRead([id])
-                    self?.refreshChrome()
-                }
-            }
+            record([.status(id: entry.id, .read)])
             list.update([entry])
         }
         current = entry
@@ -414,10 +407,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         guard var entry = current else { return }
         entry.starred.toggle()
         current = entry
-        let (id, starred) = (entry.id, entry.starred)
-        if let engine { Task { await engine.setStarred(starred, id: id) } }
+        record([.starred(id: entry.id, entry.starred)])
         list.update([entry])
         refreshChrome()
+    }
+
+    /// A local read or star: through the engine, which also schedules a sync, or, while none is attached, straight
+    /// into the store's queue for the next engine to push.
+    private func record(_ changes: [PendingChange]) {
+        guard let engine else {
+            do { try store.record(changes) } catch { setStatus("Couldn't save to the local cache: \(error.localizedDescription)") }
+            return
+        }
+        Task { @MainActor [weak self] in
+            await engine.record(changes)
+            self?.refreshChrome()
+        }
     }
 
     private func openInBrowser() {
@@ -444,13 +449,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     /// Applies `plan` (or, for `.unread`, takes it back), and registers the opposite with the window's undo.
     private func apply(_ plan: MarkAllPlan, as status: EntryStatus) {
-        guard let engine else { return }
         let ids = plan.ids
         if status == .read { ledger.record(plan) }
-        Task { @MainActor [weak self] in
-            if status == .read { await engine.markRead(ids) } else { await engine.markUnread(ids) }
-            self?.refreshChrome()
-        }
+        record(ids.map { .status(id: $0, status) })
         let changed = ((try? store.entries(ids: ids)) ?? []).map { e -> Entry in
             var e = e
             e.status = status
@@ -525,10 +526,10 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             s.showingComments = pane == .comments && prefs.value.layout == .single
             s.starred = current.starred
         } else {
-            s.pane = Self.noItem
-            s.comments = Self.noItem
-            s.star = Self.noItem
-            s.openInBrowser = Self.noItem
+            s.pane = ViewerContainer.noItem
+            s.comments = ViewerContainer.noItem
+            s.star = ViewerContainer.noItem
+            s.openInBrowser = ViewerContainer.noItem
         }
         if markAllPlan() == nil { s.markAll = "Nothing unread in this list" }
         return s
