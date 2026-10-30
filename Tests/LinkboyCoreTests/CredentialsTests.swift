@@ -41,6 +41,10 @@ final class CredentialsTests: XCTestCase {
         XCTAssertEqual(Credentials.serverURL(from: " https://reader.example.com/ "), URL(string: "https://reader.example.com"))
         XCTAssertEqual(Credentials.serverURL(from: "http://reader.example.com:8080/miniflux/?a=1#top"),
                        URL(string: "http://reader.example.com:8080/miniflux"))
+        XCTAssertEqual(Credentials.serverURL(from: "https://reader.example.com/v1/"), URL(string: "https://reader.example.com"))
+        XCTAssertEqual(Credentials.serverURL(from: "https://reader.example.com/miniflux/v1"),
+                       URL(string: "https://reader.example.com/miniflux"))
+        XCTAssertEqual(Credentials.serverURL(from: "https://reader.example.com/v1x"), URL(string: "https://reader.example.com/v1x"))
         XCTAssertNil(Credentials.serverURL(from: "reader.example.com"))
         XCTAssertNil(Credentials.serverURL(from: "ftp://reader.example.com"))
         XCTAssertNil(Credentials.serverURL(from: "https://"))

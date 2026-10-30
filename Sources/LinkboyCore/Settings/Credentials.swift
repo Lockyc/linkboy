@@ -11,7 +11,8 @@ public struct Credentials: Equatable, Sendable {
     }
 
     /// The Miniflux server URL typed by the user, as `MinifluxClient` needs it: http(s) with a host, no query,
-    /// fragment or trailing slash. Nil when the text isn't such a URL.
+    /// fragment, trailing slash or trailing `/v1` — Miniflux's API Keys page shows the endpoint with `/v1/`,
+    /// and the client adds that itself. Nil when the text isn't such a URL.
     public static func serverURL(from text: String) -> URL? {
         guard var c = URLComponents(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
               let scheme = c.scheme?.lowercased(), scheme == "http" || scheme == "https",
@@ -19,6 +20,7 @@ public struct Credentials: Equatable, Sendable {
         c.query = nil
         c.fragment = nil
         while c.path.hasSuffix("/") { c.path.removeLast() }
+        if c.path.lowercased().hasSuffix("/v1") { c.path.removeLast(3) }
         return c.url
     }
 }
