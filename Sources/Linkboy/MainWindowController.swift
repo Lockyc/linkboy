@@ -257,6 +257,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         }
         if let id = current?.id, let index = snapshot.ids.firstIndex(of: id) { snapshot.cursor = index }
         reloadList()
+        prefetchNext()
+    }
+
+    /// Points the prefetcher at the item after the open one in the current snapshot; nothing open, nothing held.
+    private func prefetchNext() {
+        guard let current else { return viewer.prefetcher.discardAll() }
+        viewer.prefetcher.prepare(after: current, in: snapshot) { [store] ids in (try? store.entries(ids: ids)) ?? [] }
     }
 
     private func reloadList() {
@@ -391,7 +398,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         pane = .page
         list.select(row: index)
         viewer.show(entry: entry, layout: prefs.value.layout, pane: pane, usePrefetched: movesForward)
-        viewer.prefetcher.prepare(after: entry, in: snapshot) { [store] ids in (try? store.entries(ids: ids)) ?? [] }
+        prefetchNext()
         refreshChrome()
     }
 

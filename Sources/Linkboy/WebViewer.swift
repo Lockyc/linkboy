@@ -100,6 +100,7 @@ final class WebViewer: NSView, WKNavigationDelegate, WKUIDelegate {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         config.applicationNameForUserAgent = safariToken
+        config.mediaTypesRequiringUserActionForPlayback = .all
         addScripts(to: config.userContentController)
         ContentRules.shared.attach(config.userContentController)
         return WKWebView(frame: .zero, configuration: config)
