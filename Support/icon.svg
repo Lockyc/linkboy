@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="linkboy app icon">
+  <title>linkboy</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f8cf7"/>
+      <stop offset="1" stop-color="#2a56c6"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="229" fill="url(#tile)"/>
+  <!-- feed glyph: a dot and two arcs -->
+  <circle cx="332" cy="692" r="76" fill="#fff"/>
+  <path d="M256 424a344 344 0 0 1 344 344" fill="none" stroke="#fff" stroke-width="96" stroke-linecap="round"/>
+  <path d="M256 214a554 554 0 0 1 554 554" fill="none" stroke="#fff" stroke-width="96" stroke-linecap="round" opacity="0.75"/>
+</svg>

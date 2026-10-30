@@ -1,0 +1,9 @@
+name    = "linkboy"
+summary = "Fast, keyboard-driven macOS reader for link-aggregator feeds on Miniflux — each item's page and its comments, in logged-in web views"
+kind    = "app"
+status  = "active"
+tags    = ["macos", "rss", "miniflux", "reader", "keyboard-driven"]
+stack   = ["swift"]
+
+[github]
+topics_extra = ["appkit", "swift", "rss", "miniflux", "webkit"]
