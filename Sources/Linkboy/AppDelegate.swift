@@ -64,9 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alert("Couldn't save the login to the Keychain", detail: "This connection lasts until linkboy quits.")
         }
         if let main {
-            let newServer = c.baseURL != credentials?.baseURL
             credentials = c
-            main.attach(api: client, newServer: newServer)
+            main.attach(api: client, server: c.baseURL)
         } else {
             openMain(c, client: client)
         }
@@ -83,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self?.showSetup(error: "Miniflux rejected the API key", fromBackground: true)
             }
             self.main = main
-            main.attach(api: client)
+            main.attach(api: client, server: c.baseURL)
             main.showWindow(nil)
         } catch {
             alert("Couldn't open the local cache", detail: error.localizedDescription)

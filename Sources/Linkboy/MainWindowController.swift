@@ -83,11 +83,18 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         observers.forEach(NotificationCenter.default.removeObserver)
     }
 
-    /// Starts syncing with `api`, replacing any previous engine once it has fully shut down. `newServer` empties
-    /// the local cache in between: another server's entry ids, queued changes and last-sync mark mean nothing
-    /// there; if that fails, no engine is attached and the status line says why. Until the new engine is attached,
-    /// reading changes stay local.
-    func attach(api: MinifluxAPI, newServer: Bool = false) {
+    /// Starts syncing with `api` at `server`, replacing any previous engine once it has fully shut down. A cache
+    /// the store records as another server's is emptied in between: that server's entry ids, queued changes and
+    /// last-sync mark mean nothing here; if that fails, no engine is attached and the status line says why. A
+    /// cache with no server recorded predates the record and is taken as `server`'s. Until the new engine is
+    /// attached, reading changes stay local.
+    func attach(api: MinifluxAPI, server: URL) {
+        let newServer: Bool
+        switch Result(catching: { try store.server() }) {
+        case .success(let recorded?): newServer = recorded != server
+        case .success(nil): newServer = (try? store.setServer(server)) == nil
+        case .failure: newServer = true
+        }
         events?.cancel()
         let old = engine
         engine = nil
@@ -109,7 +116,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             guard let self, self.generation == generation else { return }
             if newServer {
                 do {
-                    try self.store.reset()
+                    try self.store.reset(for: server)
                 } catch {
                     // Syncing another server's entries into this cache would mix two servers' ids.
                     self.setStatus("Couldn't clear the local cache: \(error.localizedDescription)")

@@ -186,11 +186,29 @@ public final class Store: Sendable {
         }
     }
 
-    /// Empties the cache: entries, queued changes and the last-sync mark. For switching to another server,
-    /// whose entry ids mean different entries.
-    public func reset() throws {
+    /// The server this cache holds entries for; nil for a cache from before it was recorded.
+    public func server() throws -> URL? {
+        try pool.read { db in
+            try String.fetchOne(db, sql: "SELECT value FROM meta WHERE key = 'server'").flatMap(URL.init(string:))
+        }
+    }
+
+    /// Records `server` as this cache's own without emptying it.
+    public func setServer(_ server: URL) throws {
+        try pool.write { db in try Self.setServer(server, in: db) }
+    }
+
+    private static func setServer(_ server: URL, in db: Database) throws {
+        try db.execute(sql: "INSERT OR REPLACE INTO meta (key, value) VALUES ('server', ?)",
+                       arguments: [server.absoluteString])
+    }
+
+    /// Empties the cache (entries, queued changes, the last-sync mark) and records `server` as its own, in one
+    /// transaction. For switching to another server, whose entry ids mean different entries.
+    public func reset(for server: URL) throws {
         try pool.write { db in
             try db.execute(sql: "DELETE FROM entry; DELETE FROM pendingChange; DELETE FROM meta")
+            try Self.setServer(server, in: db)
         }
     }
 
