@@ -49,11 +49,6 @@ no key: it asks first, naming the count, and `⌘Z` undoes it.
 
 Pre-1.0 and not yet released; the first release will be v0.1.0.
 
-## Roadmap
-
-- Per-feed filtering — not yet. Unlock: a feed list from `/v1/feeds` in the scope switcher (it
-  lists categories today).
-
 ## Build & test
 
 Needs Xcode's Swift 6 toolchain and [`just`](https://github.com/casey/just).
