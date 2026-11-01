@@ -517,10 +517,16 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             setStatus("Updated \(Date().formatted(date: .omitted, time: .shortened))")
             if snapshot.ids.isEmpty {
                 take(snapshot.scope)
-            } else if !newIDs.isEmpty {
-                let inScope = Set((try? store.entryIDs(matching: snapshot.scope)) ?? [])
-                snapshot.noteArrivals(newIDs.filter(inScope.contains))
+            } else {
+                if !newIDs.isEmpty {
+                    let inScope = Set((try? store.entryIDs(matching: snapshot.scope)) ?? [])
+                    snapshot.noteArrivals(newIDs.filter(inScope.contains))
+                }
+                // A read or star made elsewhere: the rows and the open item show it, so `s`/`u` flip the
+                // current value. Row state only; the snapshot's membership holds.
+                list.update((try? store.entries(ids: snapshot.ids)) ?? [])
             }
+            if let id = current?.id, let fresh = try? store.entries(ids: [id]).first { current = fresh }
             loadCategories()
         case .offline:
             setStatus("Offline")
