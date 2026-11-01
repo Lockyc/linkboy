@@ -59,7 +59,7 @@ private final class FakeAPI: MinifluxAPI, @unchecked Sendable {
         try record("entries")
         let slice = Array(pages.dropFirst(q.offset).prefix(q.limit))
         let good = slice.filter { !undecodable.contains($0.id) }
-        return EntryPage(total: pages.count, entries: good, skipped: slice.count - good.count)
+        return EntryPage(entries: good, skipped: slice.count - good.count)
     }
 
     func entry(id: Int64) async throws -> Entry {

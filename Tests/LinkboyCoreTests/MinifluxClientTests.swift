@@ -78,16 +78,14 @@ final class MinifluxClientTests: XCTestCase {
         let after = Date(timeIntervalSince1970: 1_700_000_000)
         var q = EntryQuery()
         q.status = [.unread]
-        q.categoryID = 7
         q.changedAfter = after
         let result = try await client.entries(q)
 
         let req = try XCTUnwrap(captured.value)
         XCTAssertEqual(req.url?.path, "/v1/entries")
-        XCTAssertEqual(req.url?.query, "status=unread&category_id=7&changed_after=1700000000&limit=100&offset=0&order=published_at&direction=desc")
+        XCTAssertEqual(req.url?.query, "status=unread&changed_after=1700000000&limit=100&offset=0&order=published_at&direction=desc")
         XCTAssertEqual(req.value(forHTTPHeaderField: "X-Auth-Token"), "secret-key")
         XCTAssertEqual(req.httpMethod, "GET")
-        XCTAssertEqual(result.total, 1)
         XCTAssertEqual(result.entries.first?.id, 42)
     }
 
@@ -171,7 +169,6 @@ final class MinifluxClientTests: XCTestCase {
         let page = try await client.entries(EntryQuery())
         XCTAssertEqual(page.entries.map(\.id), [1, 4])
         XCTAssertEqual(page.skipped, 2)
-        XCTAssertEqual(page.total, 4)
     }
 
     func testCategoriesAndEntryDecode() async throws {

@@ -30,12 +30,10 @@ public final class MinifluxClient: MinifluxAPI {
             let entry: Entry?
             init(from decoder: Decoder) throws { entry = try? Entry(from: decoder) }
         }
-        struct Page: Decodable { let total: Int; let entries: [Lenient] }
+        struct Page: Decodable { let entries: [Lenient] }
         var items: [URLQueryItem] = []
         for s in q.status ?? [] { items.append(.init(name: "status", value: s.rawValue)) }
         if let starred = q.starred { items.append(.init(name: "starred", value: String(starred))) }
-        if let id = q.categoryID { items.append(.init(name: "category_id", value: String(id))) }
-        if let id = q.feedID { items.append(.init(name: "feed_id", value: String(id))) }
         if let d = q.changedAfter { items.append(.init(name: "changed_after", value: String(Int64(d.timeIntervalSince1970)))) }
         items += [
             .init(name: "limit", value: String(q.limit)),
@@ -45,7 +43,7 @@ public final class MinifluxClient: MinifluxAPI {
         ]
         let page = try await decode(Page.self, from: send(request("/v1/entries", query: items)))
         let entries = page.entries.compactMap(\.entry)
-        return EntryPage(total: page.total, entries: entries, skipped: page.entries.count - entries.count)
+        return EntryPage(entries: entries, skipped: page.entries.count - entries.count)
     }
 
     public func entry(id: Int64) async throws -> Entry {
