@@ -101,37 +101,41 @@ public final class Store: Sendable {
         }
     }
 
-    public func setStatus(_ s: EntryStatus, ids: [Int64]) throws {
+    /// Changes entries without queueing them: state as if the server had sent it. Internal, for tests to seed
+    /// with; the app changes state only through `record`, which queues.
+    func setStatus(_ s: EntryStatus, ids: [Int64]) throws {
         try pool.write { db in
-            for id in ids {
-                try db.execute(sql: "UPDATE entry SET status = ? WHERE id = ?", arguments: [s.rawValue, id])
-            }
+            for id in ids { try Self.apply(.status(id: id, s), in: db) }
         }
     }
 
-    public func setStarred(_ v: Bool, id: Int64) throws {
-        try pool.write { db in
-            try db.execute(sql: "UPDATE entry SET starred = ? WHERE id = ?", arguments: [v, id])
-        }
+    /// As `setStatus`, for a star.
+    func setStarred(_ v: Bool, id: Int64) throws {
+        try pool.write { db in try Self.apply(.starred(id: id, v), in: db) }
     }
 
     /// A local read or star: writes each change to its entry and queues it for the server, in one transaction.
     public func record(_ changes: [PendingChange]) throws {
         try pool.write { db in
             for c in changes {
-                switch c {
-                case .status(let id, let s):
-                    try db.execute(sql: "UPDATE entry SET status = ? WHERE id = ?", arguments: [s.rawValue, id])
-                case .starred(let id, let v):
-                    try db.execute(sql: "UPDATE entry SET starred = ? WHERE id = ?", arguments: [v, id])
-                }
+                try Self.apply(c, in: db)
                 try Self.enqueue(c, in: db)
             }
         }
     }
 
-    /// Queues changes; a later change of the same kind for the same entry replaces the earlier one.
-    public func enqueue(_ changes: [PendingChange]) throws {
+    private static func apply(_ c: PendingChange, in db: Database) throws {
+        switch c {
+        case .status(let id, let s):
+            try db.execute(sql: "UPDATE entry SET status = ? WHERE id = ?", arguments: [s.rawValue, id])
+        case .starred(let id, let v):
+            try db.execute(sql: "UPDATE entry SET starred = ? WHERE id = ?", arguments: [v, id])
+        }
+    }
+
+    /// Queues changes without writing them to their entries; internal, for tests. A later change of the same kind
+    /// for the same entry replaces the earlier one.
+    func enqueue(_ changes: [PendingChange]) throws {
         try pool.write { db in
             for c in changes { try Self.enqueue(c, in: db) }
         }
