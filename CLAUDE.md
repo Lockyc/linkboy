@@ -14,8 +14,7 @@ links:
 # linkboy — agent notes
 
 Fast, keyboard-driven macOS reader for link-aggregator feeds on Miniflux — each item's page and
-its comments, in logged-in web views. Swift package, AppKit, macOS 14+. Pre-1.0, unreleased until
-v0.1.0. The repo is public: tracked files carry no hostnames, usernames or machine paths. Read
+its comments, in logged-in web views. Swift package, AppKit, macOS 14+. Pre-1.0. The repo is public: tracked files carry no hostnames, usernames or machine paths. Read
 [docs/architecture.md](docs/architecture.md) before changing reading, keys, sync or web views.
 
 **What's next:** `docs/FOLLOWUPS.md` — deliberately deferred work.

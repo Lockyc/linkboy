@@ -47,7 +47,8 @@ no key: it asks first, naming the count, and `⌘Z` undoes it.
 
 ## Status
 
-Pre-1.0 and not yet released; the first release will be v0.1.0.
+Pre-1.0 (0.x): reading, starring and marking read against a Miniflux server, with page and comment
+prefetch and in-app updates.
 
 ## Build & test
 
