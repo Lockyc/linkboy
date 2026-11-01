@@ -22,7 +22,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     /// nil until loaded, and when they couldn't be.
     private var categories: [CategoryRef]?
     private var categoriesLoading = false
-    private var ledger = UndoLedger()
     /// Bumped by `attach`, so a categories reply from a previous server is dropped.
     private var generation = 0
     private let undo = UndoManager()
@@ -100,7 +99,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
             categories = nil
             current = nil
             pane = .page
-            ledger = UndoLedger()
             undo.removeAllActions()
             viewer.showEmpty(layout: prefs.value.layout)
         }
@@ -482,7 +480,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     /// Applies `plan` (or, for `.unread`, takes it back), and registers the opposite with the window's undo.
     private func apply(_ plan: MarkAllPlan, as status: EntryStatus) {
         let ids = plan.ids
-        if status == .read { ledger.record(plan) }
         record(ids.map { .status(id: $0, status) })
         let changed = ((try? store.entries(ids: ids)) ?? []).map { e -> Entry in
             var e = e
@@ -492,12 +489,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         list.update(changed)
         if let id = current?.id, ids.contains(id) { current?.status = status }
         undo.registerUndo(withTarget: self) { target in
-            if status == .read {
-                guard let last = target.ledger.undoLast() else { return }
-                target.apply(last, as: .unread)
-            } else {
-                target.apply(plan, as: .read)
-            }
+            target.apply(plan, as: status == .read ? .unread : .read)
         }
         undo.setActionName("Mark All")
         refreshChrome()

@@ -63,18 +63,6 @@ final class MarkAllTests: XCTestCase {
         XCTAssertEqual(try MarkAllPlan.plan(for: snap, store: store)?.prompt, "Mark 2 unread items in Starred as read?")
     }
 
-    func testUndoRestoresExactIDs() throws {
-        let store = try makeStore()
-        try store.upsert([entry(1), entry(2), entry(3)])
-        let snap = try Snapshot.take(.unread(category: nil, feed: nil), store: store)
-        let plan = try XCTUnwrap(MarkAllPlan.plan(for: snap, store: store))
-        let ledger = UndoLedger()
-        XCTAssertNil(ledger.undoLast())
-        ledger.record(plan)
-        XCTAssertEqual(ledger.undoLast()?.ids, plan.ids)
-        XCTAssertNil(ledger.undoLast())
-    }
-
     private func makeStore2() throws -> Store {
         try Store(path: dir.appendingPathComponent("second.sqlite"))
     }

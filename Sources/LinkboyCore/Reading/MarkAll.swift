@@ -25,19 +25,3 @@ public struct MarkAllPlan: Sendable, Equatable {
         return MarkAllPlan(scope: snapshot.scope, ids: unread.map(\.id), scopeName: name)
     }
 }
-
-/// Session-only record of mark-all plans, so the latest can be undone. Writes nothing itself.
-public final class UndoLedger: @unchecked Sendable {
-    private var plans: [MarkAllPlan] = []
-    private let lock = NSLock()
-
-    public init() {}
-
-    public func record(_ plan: MarkAllPlan) {
-        lock.withLock { plans.append(plan) }
-    }
-
-    public func undoLast() -> MarkAllPlan? {
-        lock.withLock { plans.popLast() }
-    }
-}

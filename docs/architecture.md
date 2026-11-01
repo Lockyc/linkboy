@@ -44,9 +44,8 @@ the snapshot; arrivals only raise `newCount` and join on an explicit re-take.
 Never bound to a key (`Action` has no such case); it is the Item menu's Mark All as Read….
 `MarkAllPlan.plan(for:store:)` lists the
 snapshot's still-unread IDs, the confirmation states that count and scope, and the write is
-`PUT /v1/entries` with exactly that ID list, never the server's mark-all. `UndoLedger` remembers
-each plan; undo (⌘Z) takes the latest back and
-`MainWindowController.apply` writes exactly that set back to unread.
+`PUT /v1/entries` with exactly that ID list, never the server's mark-all. Undo (⌘Z)
+takes the latest back: `MainWindowController.apply` writes exactly that plan's set back to unread.
 
 ## Keys
 
