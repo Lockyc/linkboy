@@ -49,4 +49,4 @@ its comments, in logged-in web views. Swift package, AppKit, macOS 14+. Pre-1.0.
   release tags `v<VERSION>` and publishes a GitHub release with notes, `linkboy.zip` and the
   Sparkle `appcast.xml` that `SUFeedURL` reads. The release interface: `just gate`, `VERSION`,
   `just bundle` (signs with `APPLE_SIGNING_IDENTITY`, hardened runtime, nested Sparkle helpers
-  re-signed; ad-hoc without it), the `app` and `info_plist` variables, `just sparkle-bin`.
+  re-signed; else the keychain's Developer ID, else ad-hoc), the `app` and `info_plist` variables, `just sparkle-bin`.
