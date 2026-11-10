@@ -28,7 +28,7 @@ its comments, in logged-in web views. Swift package, AppKit, macOS 14+. Pre-1.0.
 - `Support/Info.plist` — bundle template; `just bundle` stamps `VERSION` into it.
 - `Support/icon.svg` — icon master; `just icons` renders `AppIcon.icns` and `icon.png`.
 - `install.sh` — the curl-pipeable installer (latest release's `linkboy.zip`, team ID and
-  notarization checked); `.claude/commands/linkboy/install.md` drives it.
+  notarization checked).
 
 ## Invariants
 
