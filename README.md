@@ -33,8 +33,7 @@ local server (`localhost`, a `.local` name or an IP address).
 
 - **Page and comments.** Each item opens as its linked page; `c` flips to its comments. Pages and
   comments are prefetched, so moving through the list doesn't wait on the network.
-- **Unread or starred**, across every feed or narrowed to one category or feed, from the menu
-  above the list.
+- **Unread or starred**, with unread narrowable to one category, from the menu above the list.
 - **Single pane or side by side** — the page and its comments one at a time, or next to each
   other. Settings also sets the list's width, font size and density.
 - **Content blocking.** Settings → Content Blocking edits WebKit content-blocking rules (JSON,
