@@ -83,6 +83,19 @@ final class SessionHarness: @unchecked Sendable {
 
     func shutdown() async { await engine?.shutdown() }
 
+    /// What a stray timer tick or kick would do to every engine the session has replaced, and to the attached one
+    /// once `retiredToo`: sync, record, start. An engine still working after it was retired calls its server.
+    func pokeRetired(retiredToo current: Bool) async {
+        let attached = await engine
+        for e in engines where current || e !== attached {
+            await e.syncNow()
+            await e.record([.status(id: 1, .read)])
+            await e.start()
+            await e.quiesce()
+            await e.stop()
+        }
+    }
+
     func setError(_ server: Int, _ choice: Int) {
         let e = Self.errors[choice]
         apis[server].errors = e.map { ["setStatus": $0, "entries": $0, "entry": $0] } ?? [:]
@@ -206,6 +219,12 @@ final class SessionSpec {
         engine?.running = false
         await h.shutdown()
         frozen[e.server] = h.apis[e.server].calls.count
+    }
+
+    /// Every replaced or shut-down engine is driven as a stray timer or kick would; none may reach a server.
+    @Command(weight: 1)
+    func pokeRetired() async throws {
+        await h.pokeRetired(retiredToo: engine?.alive == false)
     }
 
     /// What the attached engine's server (A before any attach) answers every call with from now on.
