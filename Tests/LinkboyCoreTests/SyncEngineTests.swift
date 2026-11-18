@@ -1,83 +1,6 @@
 import XCTest
 @testable import LinkboyCore
 
-/// Holds callers in `pass()` until `open()`; `waitForArrival()` returns once a caller is held.
-private actor Gate {
-    private var isOpen = false
-    private var arrived = 0
-    private var held: [CheckedContinuation<Void, Never>] = []
-    private var arrivalWaiter: CheckedContinuation<Void, Never>?
-
-    func pass() async {
-        arrived += 1
-        arrivalWaiter?.resume()
-        arrivalWaiter = nil
-        if isOpen { return }
-        await withCheckedContinuation { held.append($0) }
-    }
-
-    func waitForArrival() async {
-        if arrived > 0 { return }
-        await withCheckedContinuation { arrivalWaiter = $0 }
-    }
-
-    func open() {
-        isOpen = true
-        held.forEach { $0.resume() }
-        held = []
-    }
-}
-
-private final class FakeAPI: MinifluxAPI, @unchecked Sendable {
-    var gate: Gate?                               // setStatus blocks here, then throws .transport if its task was cancelled
-    private let lock = NSLock()
-    private var _calls: [String] = []
-    private var _queries: [EntryQuery] = []
-    private var _statusCalls: [(EntryStatus, [Int64])] = []
-    var pages: [Entry] = []                       // served for every entries() call, sliced by offset/limit
-    var undecodable: Set<Int64> = []              // ids in `pages` served as entries that failed to decode
-    var serverEntries: [Int64: Entry] = [:]
-    var errors: [String: MinifluxError] = [:]     // keyed by call name, e.g. "setStatus", "entries", "entry:7"
-
-    var calls: [String] { lock.withLock { _calls } }
-    var queries: [EntryQuery] { lock.withLock { _queries } }
-    var statusCalls: [(EntryStatus, [Int64])] { lock.withLock { _statusCalls } }
-
-    private func record(_ name: String, key: String? = nil) throws {
-        let err: MinifluxError? = lock.withLock {
-            _calls.append(name)
-            return errors[key ?? name] ?? errors[name]
-        }
-        if let err { throw err }
-    }
-
-    func me() async throws -> User { User(id: 1, username: "u") }
-    func categories() async throws -> [CategoryRef] { [] }
-
-    func entries(_ q: EntryQuery) async throws -> EntryPage {
-        lock.withLock { _queries.append(q) }
-        try record("entries")
-        let slice = Array(pages.dropFirst(q.offset).prefix(q.limit))
-        let good = slice.filter { !undecodable.contains($0.id) }
-        return EntryPage(entries: good, skipped: slice.count - good.count)
-    }
-
-    func entry(id: Int64) async throws -> Entry {
-        try record("entry", key: "entry:\(id)")
-        guard let e = serverEntries[id] else { throw MinifluxError.notFound }
-        return e
-    }
-
-    func setStatus(_ s: EntryStatus, ids: [Int64]) async throws {
-        lock.withLock { _statusCalls.append((s, ids)) }
-        await gate?.pass()
-        if gate != nil, Task.isCancelled { throw MinifluxError.transport("cancelled") }
-        try record("setStatus")
-    }
-
-    func toggleBookmark(id: Int64) async throws { try record("toggle:\(id)") }
-}
-
 final class SyncEngineTests: XCTestCase {
     private var dir: URL!
 
@@ -89,16 +12,9 @@ final class SyncEngineTests: XCTestCase {
 
     private func makeStore() throws -> Store { try Store(path: dir.appendingPathComponent("l.sqlite")) }
 
-    private func entry(_ id: Int64, status: EntryStatus = .unread, starred: Bool = false) -> Entry {
-        Entry(id: id, feedID: 1, status: status, title: "T", url: URL(string: "https://example.com/\(id)")!,
-              commentsURL: nil, publishedAt: Date(timeIntervalSince1970: 1_000 + Double(id)),
-              changedAt: Date(timeIntervalSince1970: 2_000), starred: starred,
-              feed: FeedRef(id: 1, title: "F", category: CategoryRef(id: 10, title: "C")))
-    }
-
     func testPushBeforePull() async throws {
         let store = try makeStore(), api = FakeAPI()
-        try store.upsert([entry(1)])
+        try store.upsert([makeEntry(1)])
         try store.setStatus(.read, ids: [1])
         try store.enqueue([.status(id: 1, .read)])
         let outcome = await SyncEngine(api: api, store: store).syncNow()
@@ -122,7 +38,7 @@ final class SyncEngineTests: XCTestCase {
 
     func testStarPushTogglesOnlyWhenServerDiffers() async throws {
         let store = try makeStore(), api = FakeAPI()
-        api.serverEntries = [1: entry(1, starred: true), 2: entry(2, starred: false)]
+        api.serverEntries = [1: makeEntry(1, starred: true), 2: makeEntry(2, starred: false)]
         try store.enqueue([.starred(id: 1, true), .starred(id: 2, true)])
         _ = await SyncEngine(api: api, store: store).syncNow()
         XCTAssertEqual(api.calls.filter { $0.hasPrefix("toggle") }, ["toggle:2"])
@@ -146,7 +62,7 @@ final class SyncEngineTests: XCTestCase {
 
     func testUndecodableEntriesAreSkippedAndPagingContinues() async throws {
         let store = try makeStore(), api = FakeAPI()
-        api.pages = (1...300).map { entry(Int64($0)) }
+        api.pages = (1...300).map { makeEntry(Int64($0)) }
         api.undecodable = [5, 260]
         let outcome = await SyncEngine(api: api, store: store).syncNow()
         XCTAssertEqual(outcome, .ok(newEntryIDs: []))
@@ -157,7 +73,7 @@ final class SyncEngineTests: XCTestCase {
 
     func testFirstSyncPagesUnreadThenStarred() async throws {
         let store = try makeStore(), api = FakeAPI()
-        api.pages = (1...300).map { entry(Int64($0)) }
+        api.pages = (1...300).map { makeEntry(Int64($0)) }
         let outcome = await SyncEngine(api: api, store: store).syncNow()
         XCTAssertEqual(outcome, .ok(newEntryIDs: []))
         let qs = api.queries
@@ -194,7 +110,7 @@ final class SyncEngineTests: XCTestCase {
         api.errors["entry:5"] = .http(400)
         api.errors["entry:7"] = .http(409)
         api.errors["entry:8"] = .http(422)
-        api.serverEntries = [6: entry(6)]
+        api.serverEntries = [6: makeEntry(6)]
         try store.enqueue([.status(id: 1, .read), .starred(id: 5, true), .starred(id: 6, true), .starred(id: 7, true),
                            .starred(id: 8, true)])
         let outcome = await SyncEngine(api: api, store: store).syncNow()
@@ -216,7 +132,7 @@ final class SyncEngineTests: XCTestCase {
 
     func testAfterUnauthorizedIntentsQueueWithoutSyncingOrEvents() async throws {
         let store = try makeStore(), api = FakeAPI()
-        try store.upsert([entry(1), entry(2)])
+        try store.upsert([makeEntry(1), makeEntry(2)])
         api.errors["entries"] = .unauthorized
         let engine = SyncEngine(api: api, store: store)
         var it = engine.events.makeAsyncIterator()
@@ -253,9 +169,9 @@ final class SyncEngineTests: XCTestCase {
 
     func testNewEntryIDsReportsOnlyUnseen() async throws {
         let store = try makeStore(), api = FakeAPI()
-        try store.upsert([entry(1)])
+        try store.upsert([makeEntry(1)])
         try store.setLastSync(Date(timeIntervalSince1970: 100))
-        api.pages = [entry(1), entry(2), entry(3, status: .read)]
+        api.pages = [makeEntry(1), makeEntry(2), makeEntry(3, status: .read)]
         let outcome = await SyncEngine(api: api, store: store).syncNow()
         XCTAssertEqual(outcome, .ok(newEntryIDs: [2]))
     }
@@ -300,7 +216,7 @@ final class SyncEngineTests: XCTestCase {
     func testKicksDuringRunningSyncCoalesceIntoOneFollowUp() async throws {
         let store = try makeStore(), api = FakeAPI(), gate = Gate()
         api.gate = gate
-        try store.upsert([1, 2, 3, 4].map { entry($0) })
+        try store.upsert([1, 2, 3, 4].map { makeEntry($0) })
         let engine = SyncEngine(api: api, store: store)
         var it = engine.events.makeAsyncIterator()
         await engine.markRead([1])
@@ -337,7 +253,7 @@ final class SyncEngineTests: XCTestCase {
 
     func testMarkReadWritesStoreQueuesAndPushesInBackground() async throws {
         let store = try makeStore(), api = FakeAPI()
-        try store.upsert([entry(1)])
+        try store.upsert([makeEntry(1)])
         let engine = SyncEngine(api: api, store: store)
         var it = engine.events.makeAsyncIterator()
         await engine.markRead([1])
@@ -351,7 +267,7 @@ final class SyncEngineTests: XCTestCase {
     func testShutdownWaitsForInFlightSyncThenIgnoresEverything() async throws {
         let store = try makeStore(), api = FakeAPI(), gate = Gate()
         api.gate = gate
-        try store.upsert([entry(1), entry(2)])
+        try store.upsert([makeEntry(1), makeEntry(2)])
         let engine = SyncEngine(api: api, store: store)
         var it = engine.events.makeAsyncIterator()
         await engine.markRead([1])
@@ -381,11 +297,4 @@ final class SyncEngineTests: XCTestCase {
         while let e = await it.next() { events.append(e) }   // ends: shutdown finishes the stream
         XCTAssertEqual(events, [])
     }
-}
-
-private final class Flag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var _value = false
-    var value: Bool { lock.withLock { _value } }
-    func set() { lock.withLock { _value = true } }
 }
