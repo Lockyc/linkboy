@@ -1,3 +1,4 @@
+import Clocks
 import XCTest
 @testable import LinkboyCore
 
@@ -144,7 +145,7 @@ final class SyncEngineTests: XCTestCase {
 
         await engine.markRead([2])
         await engine.setStarred(true, id: 1)
-        try await Task.sleep(for: .milliseconds(100))
+        await engine.quiesce()
         XCTAssertEqual(api.calls, callsAfterRejection)
         XCTAssertEqual(try store.entries(ids: [2]).first?.status, .read)
         XCTAssertEqual(try store.pending(), [.status(id: 2, .read), .starred(id: 1, true)])
@@ -176,41 +177,65 @@ final class SyncEngineTests: XCTestCase {
         XCTAssertEqual(outcome, .ok(newEntryIDs: [2]))
     }
 
+    private static let interval = Duration.seconds(300)
+
+    /// Returns once something is sleeping on `clock`, so an `advance` wakes it rather than racing it.
+    private func untilSleeping(_ clock: TestClock<Duration>) async {
+        for _ in 0..<1_000 {
+            do { try await clock.checkSuspension() } catch { return }
+        }
+        XCTFail("nothing slept on the clock")
+    }
+
     func testUnauthorizedStopsTimer() async throws {
-        let store = try makeStore(), api = FakeAPI()
+        let store = try makeStore(), api = FakeAPI(), clock = TestClock()
         api.errors["setStatus"] = .unauthorized
         try store.enqueue([.status(id: 1, .read)])
-        let engine = SyncEngine(api: api, store: store, interval: .milliseconds(5))
+        let engine = SyncEngine(api: api, store: store, interval: Self.interval, clock: clock)
         var it = engine.events.makeAsyncIterator()
         await engine.start()
         let first = await it.next()
         XCTAssertEqual(first, .unauthorized)
-        try await Task.sleep(for: .milliseconds(150))
+        await clock.advance(by: Self.interval * 10)
+        await engine.quiesce()
         XCTAssertEqual(api.calls, ["setStatus"])
     }
 
-    func testStopEndsTimer() async throws {
-        let store = try makeStore(), api = FakeAPI()
-        let engine = SyncEngine(api: api, store: store, interval: .milliseconds(5))
+    func testTimerSyncsEveryIntervalUntilStopped() async throws {
+        let store = try makeStore(), api = FakeAPI(), clock = TestClock()
+        let engine = SyncEngine(api: api, store: store, interval: Self.interval, clock: clock)
         var it = engine.events.makeAsyncIterator()
         await engine.start()
         _ = await it.next()
-        _ = await it.next()
+        XCTAssertEqual(api.queries.count, 2, "the first sync pulls unread, then starred")
+        for _ in 1...3 {
+            await untilSleeping(clock)
+            await clock.advance(by: Self.interval)
+            _ = await it.next()
+        }
+        XCTAssertEqual(api.queries.count, 5, "each later sync pulls changes once")
+        await untilSleeping(clock)
+        await clock.advance(by: Self.interval - .seconds(1))
+        await engine.quiesce()
+        XCTAssertEqual(api.queries.count, 5, "a sync ran before its interval was up")
+
         await engine.stop()
-        try await Task.sleep(for: .milliseconds(100))
-        let settled = api.calls.count
-        try await Task.sleep(for: .milliseconds(100))
-        XCTAssertEqual(api.calls.count, settled)
+        await clock.advance(by: Self.interval * 3)
+        await engine.quiesce()
+        XCTAssertEqual(api.queries.count, 5)
     }
 
     func testTimerLoopEndsWhenEngineIsDeallocated() async throws {
-        let store = try makeStore(), api = FakeAPI()
-        var engine: SyncEngine? = SyncEngine(api: api, store: store, interval: .milliseconds(5))
+        let store = try makeStore(), api = FakeAPI(), clock = TestClock()
+        var engine: SyncEngine? = SyncEngine(api: api, store: store, interval: Self.interval, clock: clock)
         weak let weakEngine = engine
         await engine?.start()
+        await engine?.quiesce()
+        await untilSleeping(clock)
         engine = nil
-        try await Task.sleep(for: .milliseconds(100))
+        await clock.advance(by: Self.interval)
         XCTAssertNil(weakEngine)
+        XCTAssertEqual(api.queries.count, 2, "the timer synced after its engine was released")
     }
 
     func testKicksDuringRunningSyncCoalesceIntoOneFollowUp() async throws {
@@ -277,7 +302,7 @@ final class SyncEngineTests: XCTestCase {
             await engine.shutdown()
             returned.set()
         }
-        try await Task.sleep(for: .milliseconds(100))
+        for _ in 0..<100 { await Task.yield() }
         XCTAssertFalse(returned.value, "shutdown returned while a sync was still running")
         await gate.open()
         await shutdown.value
@@ -287,7 +312,7 @@ final class SyncEngineTests: XCTestCase {
         await engine.setStarred(true, id: 2)
         _ = await engine.syncNow()
         await engine.start()
-        try await Task.sleep(for: .milliseconds(50))
+        await engine.quiesce()
         XCTAssertEqual(api.calls, calls)
         XCTAssertEqual(api.statusCalls.count, statusCalls)
         XCTAssertEqual(try store.pending(), pending)

@@ -22,6 +22,8 @@ public actor SyncEngine {
     private let api: MinifluxAPI
     private let store: Store
     private let interval: Duration
+    /// What the timer waits on between syncs.
+    private let clock: any Clock<Duration>
     private let continuation: AsyncStream<SyncOutcome>.Continuation
     /// Every sync's result, in order, except that `.unauthorized` is reported only when the key becomes rejected,
     /// not again while it stays so. Single consumer.
@@ -38,10 +40,12 @@ public actor SyncEngine {
     /// Miniflux rejected the key on the last sync; cleared by a successful sync or `start()`.
     private var rejected = false
 
-    public init(api: MinifluxAPI, store: Store, interval: Duration = .seconds(300)) {
+    public init(api: MinifluxAPI, store: Store, interval: Duration = .seconds(300),
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.api = api
         self.store = store
         self.interval = interval
+        self.clock = clock
         (events, continuation) = AsyncStream.makeStream()
     }
 
@@ -50,11 +54,11 @@ public actor SyncEngine {
         guard timer == nil, !isShutDown else { return }
         rejected = false
         timerSyncDue = true
-        let interval = interval
+        let interval = interval, clock = clock
         timer = Task { [weak self] in
             while !Task.isCancelled {
                 guard await self?.timerSync() != nil else { return }
-                try? await Task.sleep(for: interval)
+                try? await clock.sleep(for: interval)
             }
         }
     }
