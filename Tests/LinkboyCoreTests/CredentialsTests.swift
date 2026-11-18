@@ -47,7 +47,10 @@ final class CredentialsTests: XCTestCase {
                        .success(URL(string: "https://reader.example.com:8443/miniflux")!))
         XCTAssertEqual(url("https://reader.example.com/v1/"), .success(URL(string: "https://reader.example.com")!))
         XCTAssertEqual(url("https://reader.example.com/miniflux/v1"), .success(URL(string: "https://reader.example.com/miniflux")!))
-        XCTAssertEqual(url("https://reader.example.com/v1x"), .success(URL(string: "https://reader.example.com/v1x")!))
+        XCTAssertEqual(url("http://localhost//v1"), .success(URL(string: "http://localhost")!))
+        XCTAssertEqual(url("https://reader.example.com/miniflux//v1/"),
+                       .success(URL(string: "https://reader.example.com/miniflux")!))
+        XCTAssertEqual(url("https://reader.example.com/v1x"),.success(URL(string: "https://reader.example.com/v1x")!))
         XCTAssertEqual(url("reader.example.com"), .failure(.invalid))
         XCTAssertEqual(url("ftp://reader.example.com"), .failure(.invalid))
         XCTAssertEqual(url("https://"), .failure(.invalid))

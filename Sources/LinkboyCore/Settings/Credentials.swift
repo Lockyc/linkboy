@@ -24,6 +24,7 @@ public struct Credentials: Equatable, Sendable {
         c.fragment = nil
         while c.path.hasSuffix("/") { c.path.removeLast() }
         if c.path.lowercased().hasSuffix("/v1") { c.path.removeLast(3) }
+        while c.path.hasSuffix("/") { c.path.removeLast() }
         guard let url = c.url else { throw ServerURLError.invalid }
         return url
     }
