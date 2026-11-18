@@ -21,7 +21,7 @@ what spans them.
 sits in `Linkboy` and takes its decisions from a Core function, so the decision is unit-tested:
 `KeyRouter.route` (whether a key is an action), `LinkPolicy` (where a navigation goes),
 `KeyBindings.pageKeys` and `PageKeyScript` (the in-page listener itself, run under JavaScriptCore
-in the tests), `MarkAllPlan`, `Snapshot`, `Credentials.serverURL`.
+in the tests), `MarkAllPlan`, `Snapshot`, `ReadingSession`, `Credentials.serverURL`.
 
 ## Data flow
 
