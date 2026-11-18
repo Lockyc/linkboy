@@ -68,7 +68,7 @@ public final class MinifluxClient: MinifluxAPI {
 
     // MARK: - Transport
 
-    private func request(_ path: String, method: String = "GET", query: [URLQueryItem] = []) -> URLRequest {
+    func request(_ path: String, method: String = "GET", query: [URLQueryItem] = []) -> URLRequest {
         var base = baseURL.absoluteString
         while base.hasSuffix("/") { base.removeLast() }
         var components = URLComponents(string: base + path)!
