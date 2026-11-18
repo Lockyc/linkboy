@@ -33,6 +33,8 @@ public actor SyncEngine {
     private var kickQueued = false
     private var kickTask: Task<SyncOutcome, Never>?
     private var isShutDown = false
+    /// `start()` has scheduled the timer's first sync and it hasn't begun.
+    private var timerSyncDue = false
     /// Miniflux rejected the key on the last sync; cleared by a successful sync or `start()`.
     private var rejected = false
 
@@ -47,10 +49,11 @@ public actor SyncEngine {
     public func start() {
         guard timer == nil, !isShutDown else { return }
         rejected = false
+        timerSyncDue = true
         let interval = interval
         timer = Task { [weak self] in
             while !Task.isCancelled {
-                guard await self?.syncNow() != nil else { return }
+                guard await self?.timerSync() != nil else { return }
                 try? await Task.sleep(for: interval)
             }
         }
@@ -59,6 +62,18 @@ public actor SyncEngine {
     public func stop() {
         timer?.cancel()
         timer = nil
+        timerSyncDue = false
+    }
+
+    private func timerSync() async -> SyncOutcome {
+        timerSyncDue = false
+        return await run(fromKick: false)
+    }
+
+    /// Returns once no sync is running or scheduled to start (a kick's and `start()`'s first one included, the
+    /// timer's later ones not), or once `shutdown()` has begun. Every outcome is on `events` by then. For tests.
+    func quiesce() async {
+        while !isShutDown, busy || kickQueued || timerSyncDue || !waiters.isEmpty { await Task.yield() }
     }
 
     /// Retires the engine for good: cancels the timer and any background sync, waits until no sync is

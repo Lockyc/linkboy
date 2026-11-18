@@ -1,6 +1,24 @@
 {
-  "originHash" : "3e8adaa9d6059248aeadb1ad515012fee34a9df47ad82c42e627f057a320895e",
+  "originHash" : "0cb0d4924d87f50854b734378a0e1bbc5069bae4414212cbe79d7ac94fa2112e",
   "pins" : [
+    {
+      "identity" : "exhaust",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nesevis/exhaust",
+      "state" : {
+        "revision" : "1c3ae3e7d4110a578fbce26afb5b47b4b9fedb91",
+        "version" : "1.9.0"
+      }
+    },
+    {
+      "identity" : "exhaust-macros",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nesevis/exhaust-macros.git",
+      "state" : {
+        "revision" : "287fe014d48f9d9ce22456ac43773eadc3e5b2af",
+        "version" : "1.9.0"
+      }
+    },
     {
       "identity" : "grdb.swift",
       "kind" : "remoteSourceControl",
@@ -17,6 +35,33 @@
       "state" : {
         "revision" : "eef1a539a373c1f1a320624b1130fc5de7b2e100",
         "version" : "2.10.0"
+      }
+    },
+    {
+      "identity" : "swift-custom-dump",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/swift-custom-dump",
+      "state" : {
+        "revision" : "4fb9e7cbb4b8f5a7354005db39447f570d6b3e19",
+        "version" : "1.7.3"
+      }
+    },
+    {
+      "identity" : "swift-issue-reporting",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/pointfreeco/swift-issue-reporting",
+      "state" : {
+        "revision" : "b23bb4493c439d3e05152bc167014235ba3d47fc",
+        "version" : "2.1.2"
+      }
+    },
+    {
+      "identity" : "swift-syntax",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-syntax.git",
+      "state" : {
+        "revision" : "79e4b74a295b6eb74a8b585e3a39d29e70c1dbd1",
+        "version" : "603.0.2"
       }
     }
   ],
