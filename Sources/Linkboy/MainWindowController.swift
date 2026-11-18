@@ -8,22 +8,21 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     /// success.
     var onUnauthorized: (() -> Void)?
 
-    private let store: Store
+    private let session: ReadingSession
     private let prefs: PreferencesModel
-    private var api: MinifluxAPI?
-    private var engine: SyncEngine?
-    private var events: Task<Void, Never>?
-    /// The engine's last sync was rejected for the key; reading carries on locally until `attach`.
-    private var rejected = false
-
-    private var snapshot: Snapshot
-    private var current: Entry?
+    private var store: Store { session.store }
+    private var snapshot: Snapshot {
+        get { session.snapshot }
+        set { session.snapshot = newValue }
+    }
+    private var current: Entry? {
+        get { session.current }
+        set { session.current = newValue }
+    }
     private var pane: ViewerPane = .page
     /// nil until loaded, and when they couldn't be.
     private var categories: [CategoryRef]?
     private var categoriesLoading = false
-    /// Bumped by `attach`, so a categories reply from a previous server is dropped.
-    private var generation = 0
     private let undo = UndoManager()
 
     private let toolbar = ToolbarView()
@@ -41,9 +40,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     private static let categoriesOffline = "Categories unavailable offline"
 
     init(store: Store, preferences: PreferencesModel) throws {
-        self.store = store
+        self.session = try ReadingSession(store: store)
         self.prefs = preferences
-        self.snapshot = try Snapshot.take(.unread(category: nil, feed: nil), store: store)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 760),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.title = "linkboy"
@@ -60,6 +58,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         list.onSelect = { [weak self] in self?.open(index: $0) }
         viewer.onSplitFractionChange = { [weak self] f in self?.prefs.update { $0.splitFraction = f } }
         prefs.observe { [weak self] in self?.apply($0) }
+        session.onChange = { [weak self] in self?.apply($0) }
 
         apply(prefs.value)
         rebuildScopeMenu()
@@ -83,57 +82,33 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         observers.forEach(NotificationCenter.default.removeObserver)
     }
 
-    /// Starts syncing with `api` at `server`, replacing any previous engine once it has fully shut down. A cache
-    /// the store records as another server's is emptied in between: that server's entry ids, queued changes and
-    /// last-sync mark mean nothing here; if that fails, no engine is attached and the status line says why. A
-    /// cache with no server recorded predates the record and is taken as `server`'s. Until the new engine is
-    /// attached, reading changes stay local.
+    /// Starts syncing with `api` at `server` (`ReadingSession.attach`). On another server than the cache's, this
+    /// window's per-server state (categories, the open pane, undo) goes too.
     func attach(api: MinifluxAPI, server: URL) {
-        let newServer: Bool
-        switch Result(catching: { try store.server() }) {
-        case .success(let recorded?): newServer = recorded != server
-        case .success(nil): newServer = (try? store.setServer(server)) == nil
-        case .failure: newServer = true
-        }
-        events?.cancel()
-        let old = engine
-        engine = nil
-        rejected = false
-        generation += 1
-        let generation = generation
-        self.api = api
-        if newServer {
+        if session.attach(api: api, server: server) {
             categories = nil
-            current = nil
             pane = .page
             undo.removeAllActions()
             viewer.showEmpty(layout: prefs.value.layout)
         }
         categoriesLoading = false
-        setStatus("Updating…")
-        Task { @MainActor [weak self] in
-            await old?.shutdown()
-            guard let self, self.generation == generation else { return }
-            if newServer {
-                do {
-                    try self.store.reset(for: server)
-                } catch {
-                    // Syncing another server's entries into this cache would mix two servers' ids.
-                    self.setStatus("Couldn't clear the local cache: \(error.localizedDescription)")
-                    return
-                }
-                self.take(.unread(category: nil, feed: nil))
-                self.rebuildScopeMenu()
-                self.refreshChrome()
-            }
-            let engine = SyncEngine(api: api, store: self.store)
-            self.engine = engine
-            self.events = Task { @MainActor [weak self] in
-                for await outcome in engine.events { self?.handle(outcome) }
-            }
-            await engine.start()
-        }
         loadCategories()
+    }
+
+    private func apply(_ change: ReadingSession.Change) {
+        switch change {
+        case .status(let text): setStatus(text)
+        case .listTaken:
+            reloadList()
+            prefetchNext()
+            rebuildScopeMenu()
+            refreshChrome()
+        case .listKept: rebuildScopeMenu()
+        case .rows(let entries): list.update(entries)
+        case .synced: loadCategories()
+        case .unauthorized: onUnauthorized?()
+        case .chrome: refreshChrome()
+        }
     }
 
     // MARK: - Layout
@@ -242,13 +217,13 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     }
 
     private func loadCategories() {
-        guard let api, categories == nil, !categoriesLoading else { return }
+        guard let api = session.api, categories == nil, !categoriesLoading else { return }
         categoriesLoading = true
         rebuildScopeMenu()
-        let generation = generation
+        let generation = session.generation
         Task { @MainActor [weak self] in
             let result = try? await api.categories()
-            guard let self, self.generation == generation else { return }
+            guard let self, self.session.generation == generation else { return }
             self.categoriesLoading = false
             self.categories = result?.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             self.rebuildScopeMenu()
@@ -271,19 +246,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         refreshChrome()
     }
 
-    /// On a cache read failure the previous list stays, with the error in the status line.
-    private func take(_ scope: ListScope) {
-        do {
-            snapshot = try Snapshot.take(scope, store: store)
-        } catch {
-            setStatus("Couldn't read the local cache: \(error.localizedDescription)")
-            rebuildScopeMenu()
-            return
-        }
-        if let id = current?.id, let index = snapshot.ids.firstIndex(of: id) { snapshot.cursor = index }
-        reloadList()
-        prefetchNext()
-    }
+    private func take(_ scope: ListScope) { session.take(scope) }
 
     /// Points the prefetcher at the item after the open one in the current snapshot; nothing open, nothing held.
     private func prefetchNext() {
@@ -451,18 +414,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
         refreshChrome()
     }
 
-    /// A local read or star: through the engine, which also schedules a sync, or, while none is attached, straight
-    /// into the store's queue for the next engine to push.
-    private func record(_ changes: [PendingChange]) {
-        guard let engine else {
-            do { try store.record(changes) } catch { setStatus("Couldn't save to the local cache: \(error.localizedDescription)") }
-            return
-        }
-        Task { @MainActor [weak self] in
-            await engine.record(changes)
-            self?.refreshChrome()
-        }
-    }
+    private func record(_ changes: [PendingChange]) { session.record(changes) }
 
     private func openInBrowser() {
         guard let current else { return }
@@ -504,48 +456,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
 
     // MARK: - Sync
 
-    @objc func syncNow(_ sender: Any?) {
-        guard let engine, !rejected else { return }
-        setStatus("Updating…")
-        Task { await engine.syncNow() }
-    }
+    @objc func syncNow(_ sender: Any?) { session.syncNow() }
 
-    /// Why Sync Now is unavailable, or nil when it can run.
-    private var syncUnavailable: String? {
-        if rejected { return "Miniflux rejected the API key" }
-        if engine == nil { return "Not connected to Miniflux" }
-        return nil
-    }
-
-    private func handle(_ outcome: SyncOutcome) {
-        switch outcome {
-        case .ok(let newIDs):
-            rejected = false
-            setStatus("Updated \(Date().formatted(date: .omitted, time: .shortened))")
-            if snapshot.ids.isEmpty {
-                take(snapshot.scope)
-            } else {
-                if !newIDs.isEmpty {
-                    let inScope = Set((try? store.entryIDs(matching: snapshot.scope)) ?? [])
-                    snapshot.noteArrivals(newIDs.filter(inScope.contains))
-                }
-                // A read or star made elsewhere: the rows and the open item show it, so `s`/`u` flip the
-                // current value. Row state only; the snapshot's membership holds.
-                list.update((try? store.entries(ids: snapshot.ids)) ?? [])
-            }
-            if let id = current?.id, let fresh = try? store.entries(ids: [id]).first { current = fresh }
-            loadCategories()
-        case .offline:
-            setStatus("Offline")
-        case .unauthorized:
-            rejected = true
-            setStatus("Miniflux rejected the API key")
-            onUnauthorized?()
-        case .failed(let message):
-            setStatus("Sync failed: \(message)")
-        }
-        refreshChrome()
-    }
+    private var syncUnavailable: String? { session.syncUnavailable }
 
     private func setStatus(_ text: String) {
         status.stringValue = text
