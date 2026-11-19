@@ -45,6 +45,10 @@ except when you are typing in one of its fields. Mouse side buttons go back and 
 under the pointer, and ⌘-click opens a link in the default browser. **Item → Mark All as Read…** has
 no key: it asks first, naming the count, and `⌘Z` undoes it.
 
+## Limits
+
+- Unread can be narrowed to a category, not to a single feed.
+
 ## Status
 
 Pre-1.0 (0.x): reading, starring and marking read against a Miniflux server, with page and comment
