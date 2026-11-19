@@ -60,6 +60,10 @@ except when you're typing in one of its fields.
 
 - Unread can be narrowed to a category, not to a single feed.
 
+## Limits
+
+- Unread can be narrowed to a category, not to a single feed.
+
 ## Status
 
 In use, `0.x`. What's next: [docs/FOLLOWUPS.md](docs/FOLLOWUPS.md).
