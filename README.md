@@ -56,6 +56,10 @@ local server (`localhost`, a `.local` name or an IP address).
 `j`, `k`, `c`, `s`, `u` and `o` are rebindable in Settings, and work while a web page has focus
 except when you're typing in one of its fields.
 
+## Limits
+
+- Unread can be narrowed to a category, not to a single feed.
+
 ## Status
 
 In use, `0.x`. What's next: [docs/FOLLOWUPS.md](docs/FOLLOWUPS.md).
