@@ -69,7 +69,7 @@ loads the next item's page and comments offscreen with that same construction; i
 item's two URLs, which `Snapshot.prefetchTargets` picks, and nothing blocks the page's own scripts
 from navigating a hidden viewer further. Article pages may be plain http
 (`NSAllowsArbitraryLoadsInWebContent`); the Miniflux server must be https unless it is local. Content
-blocking is a `WKContentRuleList` built from a user-editable rule source (`ContentBlocking`).
+blocking is a `WKContentRuleList` built from a user-editable rule source (`ContentRules`).
 
 ## No animation
 

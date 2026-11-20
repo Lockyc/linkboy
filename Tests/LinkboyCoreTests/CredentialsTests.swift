@@ -59,11 +59,14 @@ final class CredentialsTests: XCTestCase {
 
     func testPlainHTTPOnlyForLocalServers() {
         for local in ["http://localhost:8080", "http://LOCALHOST/miniflux", "http://reader.local", "http://NAS.Local:8080",
-                      "http://192.168.1.20:8080", "http://127.0.0.1", "http://[::1]:8080", "http://[fd00::12]/miniflux"] {
+                      "http://192.168.1.20:8080", "http://127.0.0.1", "http://[::1]:8080", "http://[fd00::12]/miniflux",
+                      "http://10.0.0.5", "http://172.20.1.1", "http://169.254.3.4", "http://100.101.102.103",
+                      "http://[fe80::1]"] {
             XCTAssertEqual(url(local + "/v1/"), .success(URL(string: local)!), local)
         }
         for remote in ["http://reader.example.com", "HTTP://reader.example.com/v1/", "http://localhost.example.com",
-                       "http://reader.local.example.com", "http://1.2.3.4.example.com", "http://192.168.1"] {
+                       "http://reader.local.example.com", "http://1.2.3.4.example.com", "http://192.168.1",
+                       "http://203.0.113.5", "http://172.32.0.1", "http://100.128.0.1", "http://[2001:db8::1]"] {
             XCTAssertEqual(url(remote), .failure(.insecure), remote)
         }
     }

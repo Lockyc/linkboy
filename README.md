@@ -27,7 +27,7 @@ notarized, and installs `/Applications/linkboy.app`. linkboy then updates itself
 linkboy needs a Miniflux server, 2.0.49 or later, and an API key: in Miniflux, **Settings → API
 Keys → Create a new API key**. linkboy asks for the server URL and key on first launch and keeps
 the key in the Keychain. The server must be `https://`; plain `http://` is accepted only for a
-local server (`localhost`, a `.local` name or an IP address).
+local server (`localhost`, a `.local` name, or a private, loopback, link-local or Tailscale IP address).
 
 ## Features
 

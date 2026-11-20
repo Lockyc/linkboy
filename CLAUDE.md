@@ -41,7 +41,8 @@ its comments, in logged-in web views. Swift package, AppKit, macOS 14+. Pre-1.0.
 ## Build, test, verify, branches
 
 - `just test`, `just gate`; `just run` builds and launches `build/linkboy.app`.
-- Verify UI changes by running the app (`just run`) and confirming the window renders as intended.
+- Verify UI changes with `just bundle`, then `open -g -j build/linkboy.app` (in the background,
+  so it takes no one's focus), and look at the window.
 - Branches: `main` + `dev`. Work lands on `dev`; a release fast-forwards `main` from `dev`
   (`git merge --ff-only dev`). Docs-only changes may land on `main` and are forward-merged into
   `dev` immediately.

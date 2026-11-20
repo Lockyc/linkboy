@@ -13,7 +13,8 @@ public struct Credentials: Equatable, Sendable {
     /// The Miniflux server URL typed by the user, as `MinifluxClient` needs it: http(s) with a host, no query,
     /// fragment, trailing slash or trailing `/v1` — Miniflux's API Keys page shows the endpoint with `/v1/`,
     /// and the client adds that itself. The API key travels in every request, so plain http is refused
-    /// (`.insecure`) except for a local server: `localhost`, a `.local` name, or an IP address literal.
+    /// (`.insecure`) except for a local server: `localhost`, a `.local` name, or a local IP address
+    /// (`isLocal(host:)`).
     public static func serverURL(from text: String) throws -> URL {
         guard var c = URLComponents(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
               let scheme = c.scheme?.lowercased(), scheme == "http" || scheme == "https",
@@ -29,13 +30,32 @@ public struct Credentials: Equatable, Sendable {
         return url
     }
 
-    /// `host` as `URLComponents` gives it: IPv6 literals keep their brackets.
+    /// `host` as `URLComponents` gives it: IPv6 literals keep their brackets. An IP literal is local
+    /// only in a range that never routes over the internet: IPv4 loopback, private (RFC 1918),
+    /// link-local and CGNAT `100.64.0.0/10` (a Tailscale address); IPv6 loopback, unique-local
+    /// `fc00::/7` and link-local `fe80::/10`.
     static func isLocal(host: String) -> Bool {
         let name = host.lowercased()
         if name == "localhost" || name.hasSuffix(".local") { return true }
-        if name.hasPrefix("[") && name.hasSuffix("]") { return true }
-        let octets = name.split(separator: ".", omittingEmptySubsequences: false)
-        return octets.count == 4 && octets.allSatisfy { !$0.isEmpty && $0.count <= 3 && $0.allSatisfy { ("0"..."9").contains($0) } && UInt8($0) != nil }
+        if name.hasPrefix("[") && name.hasSuffix("]") {
+            let addr = name.dropFirst().dropLast().split(separator: "%").first.map(String.init) ?? ""
+            if addr == "::1" { return true }
+            guard let first = addr.split(separator: ":", omittingEmptySubsequences: false).first,
+                  !first.isEmpty, first.count <= 4, let h = UInt16(first, radix: 16) else { return false }
+            return h & 0xfe00 == 0xfc00 || h & 0xffc0 == 0xfe80
+        }
+        let parts = name.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4, parts.allSatisfy({ $0.count <= 3 && $0.allSatisfy({ ("0"..."9").contains($0) }) }) else {
+            return false
+        }
+        let o = parts.compactMap { UInt8($0) }
+        guard o.count == 4 else { return false }
+        switch (o[0], o[1]) {
+        case (127, _), (10, _), (192, 168), (169, 254): return true
+        case (172, 16...31): return true
+        case (100, 64...127): return true
+        default: return false
+        }
     }
 }
 
