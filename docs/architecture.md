@@ -64,8 +64,8 @@ always route):
 ## Web views
 
 Page, comments and prefetch viewers are all `WebViewer`, sharing the one persistent
-`WKWebsiteDataStore.default()`, so logins survive relaunches. ⌘-click and new-window requests go
-through `LinkPolicy` to the default browser, which has its own separate logins. `Prefetcher`
+`WKWebsiteDataStore.default()`, so logins survive relaunches. `LinkPolicy` decides which clicks
+and new-window requests leave for the default browser, which has its own separate logins. `Prefetcher`
 loads the next item's page and comments offscreen with that same construction; it loads the
 item's two URLs, which `Snapshot.prefetchTargets` picks, and nothing blocks the page's own scripts
 from navigating a hidden viewer further. Article pages may be plain http

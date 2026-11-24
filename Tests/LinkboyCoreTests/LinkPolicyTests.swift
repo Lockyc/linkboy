@@ -41,4 +41,28 @@ final class LinkPolicyTests: XCTestCase {
         // Frames load about:blank all the time.
         XCTAssertEqual(LinkPolicy.decide(command: false, linkActivated: false, opensNewWindow: false, url: blank), .allow)
     }
+
+    func testNonWebSchemeLinksGoToMacOS() {
+        // A web view can't load these and does nothing with them, so a plain click would be a dead link.
+        for raw in ["mailto:someone@example.com", "MAILTO:someone@example.com", "zoommtg://join?x=1"] {
+            let url = URL(string: raw)!
+            XCTAssertEqual(LinkPolicy.decide(command: false, linkActivated: true, opensNewWindow: false, url: url),
+                           .openExternally, raw)
+            XCTAssertEqual(LinkPolicy.decide(command: false, linkActivated: false, opensNewWindow: true, url: url),
+                           .openExternally, raw)
+        }
+    }
+
+    func testNonWebSchemeWithoutAUserActionStaysPut() {
+        // A redirect or frame load to an app scheme isn't something the user clicked.
+        let url = URL(string: "zoommtg://join?x=1")!
+        XCTAssertEqual(LinkPolicy.decide(command: false, linkActivated: false, opensNewWindow: false, url: url), .allow)
+    }
+
+    func testWebSchemesStayInTheViewer() {
+        for raw in ["http://example.com", "data:text/plain,hi", "blob:https://example.com/x", "javascript:void(0)"] {
+            XCTAssertEqual(LinkPolicy.decide(command: false, linkActivated: true, opensNewWindow: false,
+                                             url: URL(string: raw)!), .allow, raw)
+        }
+    }
 }
