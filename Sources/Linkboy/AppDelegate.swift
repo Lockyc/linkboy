@@ -73,9 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func openMain(_ c: Credentials, client: MinifluxClient) {
         credentials = c
         do {
-            let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                                      appropriateFor: nil, create: true)
-            let store = try Store(path: support.appendingPathComponent("linkboy/linkboy.sqlite"))
+            let store = try Store(path: AppPaths.support.appendingPathComponent("linkboy.sqlite"))
             let main = try MainWindowController(store: store, preferences: prefs)
             main.onUnauthorized = { [weak self] in
                 self?.showSetup(error: "Miniflux rejected the API key", fromBackground: true)

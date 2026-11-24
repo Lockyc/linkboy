@@ -8,8 +8,7 @@ import WebKit
 final class ContentRules {
     static let shared = ContentRules()
 
-    static let fileURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("linkboy/content-rules.json")
+    static let fileURL = AppPaths.support.appendingPathComponent("content-rules.json")
     private static let identifier = "content-rules"
 
     /// Why the saved rules aren't active, or nil when they are.
