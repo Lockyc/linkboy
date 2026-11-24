@@ -172,6 +172,24 @@ final class ReadingSessionTests: XCTestCase {
         XCTAssertEqual(seen, [.listTaken])
     }
 
+    func testOkSyncRetakesAnEmptyListOnly() throws {
+        let store = try makeStore()
+        let session = try makeSession(store)
+        var seen: [ReadingSession.Change] = []
+        session.onChange = { seen.append($0) }
+        try store.upsert([makeEntry(1), makeEntry(2)])
+        session.handle(.ok(newEntryIDs: [1, 2]))
+        XCTAssertEqual(session.snapshot.ids, [2, 1], "the first sync's entries didn't fill the empty list")
+        XCTAssertTrue(seen.contains(.listTaken))
+
+        seen = []
+        try store.upsert([makeEntry(3)])
+        session.handle(.ok(newEntryIDs: [3]))
+        XCTAssertEqual(session.snapshot.ids, [2, 1], "a sync changed a non-empty list's membership")
+        XCTAssertEqual(session.snapshot.newCount, 1)
+        XCTAssertFalse(seen.contains(.listTaken))
+    }
+
     func testUnauthorizedDisablesSyncNowUntilAttach() throws {
         let session = try makeSession(try makeStore())
         var seen: [ReadingSession.Change] = []

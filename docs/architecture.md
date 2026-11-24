@@ -36,8 +36,9 @@ rejection, and re-entering the key attaches a fresh engine that pushes the queue
 ## The snapshot rule
 
 The list being read is a `Snapshot`: entry IDs frozen when the list is taken. Reading an item
-marks it read but leaves it in the snapshot, so previous always returns to it. Sync never edits
-the snapshot; arrivals only raise `newCount` and join on an explicit re-take.
+marks it read but leaves it in the snapshot, so previous always returns to it. A successful
+sync re-takes an empty list; otherwise it never edits the snapshot, and arrivals only raise
+`newCount` and join on an explicit re-take.
 
 ## Mark all
 

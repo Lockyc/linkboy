@@ -1,8 +1,8 @@
 import AppKit
 import LinkboyCore
 
-/// The reading window: toolbar over a list | viewer split. Reads a frozen `Snapshot` of the chosen scope;
-/// sync results only raise the "N new" count until the user retakes the list.
+/// The reading window: toolbar over a list | viewer split. Reads a frozen `Snapshot` of the chosen scope
+/// (docs/architecture.md § The snapshot rule).
 final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitViewDelegate, NSMenuItemValidation {
     /// Called once each time Miniflux starts rejecting the key; the app reopens setup and calls `attach` again on
     /// success.
