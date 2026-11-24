@@ -22,7 +22,8 @@ final class PreferencesModel {
 final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTabViewDelegate {
     private let model: PreferencesModel
     private let layout = NSPopUpButton()
-    private let listWidth = NSSlider(value: 320, minValue: 200, maxValue: 600, target: nil, action: nil)
+    private let listWidth = NSSlider(value: Preferences().listWidth, minValue: Preferences.listWidthRange.lowerBound,
+                                     maxValue: Preferences.listWidthRange.upperBound, target: nil, action: nil)
     private let listWidthLabel = NSTextField(labelWithString: "")
     private let fontSize = NSStepper()
     private let fontSizeLabel = NSTextField(labelWithString: "")

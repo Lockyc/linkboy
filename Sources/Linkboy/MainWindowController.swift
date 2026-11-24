@@ -535,10 +535,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
     func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? { undo }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat,
-                   ofSubviewAt dividerIndex: Int) -> CGFloat { 200 }
+                   ofSubviewAt dividerIndex: Int) -> CGFloat { Preferences.listWidthRange.lowerBound }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat,
-                   ofSubviewAt dividerIndex: Int) -> CGFloat { min(600, splitView.bounds.width - 300) }
+                   ofSubviewAt dividerIndex: Int) -> CGFloat {
+        min(Preferences.listWidthRange.upperBound, splitView.bounds.width - 300)
+    }
 
     func splitView(_ splitView: NSSplitView, shouldAdjustSizeOfSubview view: NSView) -> Bool { view !== listColumn }
 

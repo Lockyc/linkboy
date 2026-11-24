@@ -11,8 +11,10 @@ public enum Density: String, Codable, Sendable, CaseIterable {
 /// User settings, kept in `UserDefaults` as one JSON value.
 public struct Preferences: Codable, Equatable, Sendable {
     public var layout: Layout = .single
-    /// Width of the entry list, in points.
+    /// Width of the entry list, in points, within `listWidthRange`.
     public var listWidth: Double = 320
+    /// The list widths the Settings slider offers and the list divider allows.
+    public static let listWidthRange: ClosedRange<Double> = 200...600
     /// Share of the viewer the page takes in side-by-side layout.
     public var splitFraction: Double = 0.5
     public var listFontSize: Double = 13
