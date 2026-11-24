@@ -21,7 +21,7 @@ its comments, in logged-in web views. Swift package, AppKit, macOS 14+. Pre-1.0.
 
 ## Layout
 
-- `Sources/LinkboyCore/` — Foundation, GRDB and Security only; never AppKit, WebKit or SwiftUI.
+- `Sources/LinkboyCore/` — Foundation, GRDB, Security and os (`Log`) only; never AppKit, WebKit or SwiftUI.
   Every decision the unit tests cover lives here; the AppKit target has no tests.
 - `Sources/Linkboy/` — the AppKit executable (Sparkle for updates).
 - `Tests/LinkboyCoreTests/` — XCTest, `swift test`.

@@ -141,6 +141,12 @@ public actor SyncEngine {
         } else if case .ok = outcome {
             rejected = false
         }
+        switch outcome {
+        case .ok(let newIDs): Log.sync.info("sync ok, \(newIDs.count, privacy: .public) new")
+        case .offline: Log.sync.notice("sync offline")
+        case .unauthorized: Log.sync.error("sync: Miniflux rejected the API key")
+        case .failed(let message): Log.sync.error("sync failed: \(message, privacy: .public)")
+        }
         continuation.yield(outcome)
         return outcome
     }
@@ -207,10 +213,21 @@ public actor SyncEngine {
             try await call()
             try store.dequeue(changes)
         } catch MinifluxError.notFound where !Task.isCancelled {
-            try store.dequeue(changes)
+            try drop(changes, status: 404)
         } catch MinifluxError.http(let code) where Self.permanentRejections.contains(code) && !Task.isCancelled {
-            try store.dequeue(changes)
+            try drop(changes, status: code)
         }
+    }
+
+    private func drop(_ changes: [PendingChange], status: Int) throws {
+        for change in changes {
+            let (id, kind) = switch change {
+            case .status(let id, let s): (id, s.rawValue)
+            case .starred(let id, let v): (id, v ? "starred" : "unstarred")
+            }
+            Log.sync.error("dropped \(kind, privacy: .public) of entry \(id, privacy: .public): HTTP \(status, privacy: .public)")
+        }
+        try store.dequeue(changes)
     }
 
     private func pull() async throws -> [Int64] {

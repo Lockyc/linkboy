@@ -25,10 +25,24 @@ public final class MinifluxClient: MinifluxAPI {
     }
 
     public func entries(_ q: EntryQuery) async throws -> EntryPage {
-        /// Decodes each entry on its own, so one that fails leaves a nil rather than failing the page.
+        /// Decodes each entry on its own, so one that fails leaves a nil and its id and error rather than failing
+        /// the page.
         struct Lenient: Decodable {
             let entry: Entry?
-            init(from decoder: Decoder) throws { entry = try? Entry(from: decoder) }
+            let id: Int64?
+            let error: Error?
+            private struct ID: Decodable { let id: Int64 }
+            init(from decoder: Decoder) throws {
+                do {
+                    entry = try Entry(from: decoder)
+                    id = entry?.id
+                    error = nil
+                } catch {
+                    entry = nil
+                    id = try? ID(from: decoder).id
+                    self.error = error
+                }
+            }
         }
         struct Page: Decodable { let entries: [Lenient] }
         var items: [URLQueryItem] = []
@@ -43,6 +57,10 @@ public final class MinifluxClient: MinifluxAPI {
         ]
         let page = try await decode(Page.self, from: send(request("/v1/entries", query: items)))
         let entries = page.entries.compactMap(\.entry)
+        for skipped in page.entries where skipped.entry == nil {
+            let id = skipped.id.map(String.init) ?? "?"
+            Log.sync.error("skipped entry \(id, privacy: .public): \(String(describing: skipped.error!), privacy: .public)")
+        }
         return EntryPage(entries: entries, skipped: page.entries.count - entries.count)
     }
 

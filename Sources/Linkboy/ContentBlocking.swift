@@ -1,4 +1,6 @@
 import Foundation
+import LinkboyCore
+import os
 import WebKit
 
 /// The user's content-blocking rules (WebKit content-rule-list JSON) from `content-rules.json` in the app's
@@ -44,6 +46,7 @@ final class ContentRules {
         do {
             try Data(source.utf8).write(to: Self.fileURL, options: .atomic)
         } catch {
+            Log.web.error("content rules not saved: \(error.localizedDescription, privacy: .public)")
             return "Couldn't save the rules: \(error.localizedDescription)"
         }
         activate(compiled)
@@ -63,15 +66,19 @@ final class ContentRules {
         if let parsed = try? JSONSerialization.jsonObject(with: Data(source.utf8)) as? [Any], parsed.isEmpty {
             return .success(nil)
         }
+        let message: String
         do {
-            guard let list = try await WKContentRuleListStore.default()
-                .compileContentRuleList(forIdentifier: Self.identifier, encodedContentRuleList: source)
-            else { return .failure(Failure(message: "The rules didn't compile")) }
-            return .success(list)
+            if let list = try await WKContentRuleListStore.default()
+                .compileContentRuleList(forIdentifier: Self.identifier, encodedContentRuleList: source) {
+                return .success(list)
+            }
+            message = "The rules didn't compile"
         } catch {
             // WebKit puts the compiler's message ("Rule list compilation failed: …") in the help anchor.
-            return .failure(Failure(message: (error as NSError).helpAnchor ?? error.localizedDescription))
+            message = (error as NSError).helpAnchor ?? error.localizedDescription
         }
+        Log.web.error("content rules didn't compile: \(message, privacy: .public)")
+        return .failure(Failure(message: message))
     }
 
     private func activate(_ compiled: WKContentRuleList?) {

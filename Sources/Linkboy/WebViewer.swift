@@ -1,5 +1,6 @@
 import AppKit
 import LinkboyCore
+import os
 import WebKit
 
 /// One logged-in web pane. Every web view shares the persistent `WKWebsiteDataStore.default()`, presents a
@@ -145,6 +146,27 @@ final class WebViewer: NSView, WKNavigationDelegate, WKUIDelegate {
         guard webView === self.webView else { return }
         committed = true
         if window?.firstResponder === self { window?.makeFirstResponder(webView) }
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        logLoadFailure(error, in: webView)
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        logLoadFailure(error, in: webView)
+    }
+
+    /// Records a failed load by host only. A cancelled load, or one stopped because the policy sent it elsewhere,
+    /// isn't a failure.
+    private func logLoadFailure(_ error: Error, in webView: WKWebView) {
+        let e = error as NSError
+        if e.domain == NSURLErrorDomain && e.code == NSURLErrorCancelled { return }
+        if e.domain == WKError.errorDomain && e.code == 102 { return }  // frame load interrupted by policy change
+        let host = (e.userInfo[NSURLErrorFailingURLErrorKey] as? URL ?? webView.url)?.host ?? "?"
+        Log.web.error("""
+            load failed for \(host, privacy: .public): \(e.domain, privacy: .public) \(e.code, privacy: .public) \
+            \(e.localizedDescription, privacy: .public)
+            """)
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,

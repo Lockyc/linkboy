@@ -73,7 +73,7 @@ public enum CredentialError: Error, Equatable {
 /// One saved Miniflux login, as a Keychain generic password: account = base URL, secret = API key.
 public enum CredentialStore {
     /// Overridden by tests so they never touch the app's item.
-    nonisolated(unsafe) static var service = "com.lockyc.linkboy"
+    nonisolated(unsafe) static var service = LinkboyCore.bundleID
 
     public static func load() throws -> Credentials? {
         var query = baseQuery

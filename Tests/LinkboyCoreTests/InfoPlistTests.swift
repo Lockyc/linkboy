@@ -1,3 +1,4 @@
+import LinkboyCore
 import XCTest
 
 /// `Support/Info.plist` is the bundle template `just bundle` copies; these are the keys a template edit can mangle
@@ -31,7 +32,8 @@ final class InfoPlistTests: XCTestCase {
 
     func testFixedBundleIdentity() throws {
         let p = try plist()
-        XCTAssertEqual(p["CFBundleIdentifier"] as? String, "com.lockyc.linkboy")
+        XCTAssertEqual(p["CFBundleIdentifier"] as? String, LinkboyCore.bundleID)
+        XCTAssertEqual(LinkboyCore.bundleID, "com.lockyc.linkboy")
         XCTAssertEqual(p["CFBundleExecutable"] as? String, "Linkboy")
         XCTAssertEqual(p["CFBundleName"] as? String, "linkboy")
     }
