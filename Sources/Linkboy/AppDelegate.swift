@@ -163,17 +163,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item("Paste", #selector(NSText.paste(_:)), "v"),
             item("Select All", #selector(NSText.selectAll(_:)), "a"),
         ])
-        let back = MainWindowController.backKey, forward = MainWindowController.forwardKey
-        let sync = MainWindowController.syncKey
         add("Go", [
             nextItem,
             previousItem,
             .separator(),
-            item("Back", #selector(MainWindowController.historyBack(_:)), back.key, back.modifierFlags),
-            item("Forward", #selector(MainWindowController.historyForward(_:)), forward.key, forward.modifierFlags),
-            .separator(),
-            item("Sync Now", #selector(MainWindowController.syncNow(_:)), sync.key, sync.modifierFlags),
-        ])
+        ] + MainWindowController.fixedKeys.map { item($0.title, $0.action, $0.combo.key, $0.combo.modifierFlags) })
         main.items.last?.submenu?.delegate = self
         showBindings(prefs.value.bindings)
         // The main window titles this "Mark as Read" while the open item is unread.

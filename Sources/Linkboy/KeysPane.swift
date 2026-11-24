@@ -23,12 +23,12 @@ final class KeysPane: NSView {
             buttons[action] = b
             rows.append([NSTextField(labelWithString: action.title), b])
         }
-        for (title, combo) in [("Back", MainWindowController.backKey), ("Forward", MainWindowController.forwardKey)] {
-            let b = NSButton(title: combo.display, target: nil, action: nil)
+        for fixed in MainWindowController.fixedKeys {
+            let b = NSButton(title: fixed.combo.display, target: nil, action: nil)
             b.bezelStyle = .rounded
             b.isEnabled = false
-            b.toolTip = "Back and Forward always use ⌘[ and ⌘]"
-            rows.append([NSTextField(labelWithString: title), b])
+            b.toolTip = "\(fixed.title) always uses \(fixed.combo.display)"
+            rows.append([NSTextField(labelWithString: fixed.title), b])
         }
         message.textColor = .systemRed
         message.lineBreakMode = .byWordWrapping

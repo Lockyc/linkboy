@@ -290,18 +290,23 @@ final class MainWindowController: NSWindowController, NSWindowDelegate, NSSplitV
               !(window.firstResponder is NSText || window.firstResponder is NSTextField),
               let combo = KeyCombo(event: event)
         else { return event }
-        if combo == Self.backKey { historyBack(nil); return nil }
-        if combo == Self.forwardKey { historyForward(nil); return nil }
-        if combo == Self.syncKey { syncNow(nil); return nil }
+        if let fixed = Self.fixedKeys.first(where: { $0.combo == combo }) {
+            NSApp.sendAction(fixed.action, to: self, from: nil)
+            return nil
+        }
         guard let action = KeyRouter.route(combo, editableFocused: viewer.pageHasKeyboard, bindings: prefs.value.bindings)
         else { return event }
         perform(action)
         return nil
     }
 
-    static let backKey = KeyCombo(key: "[", modifiers: [.command])
-    static let forwardKey = KeyCombo(key: "]", modifiers: [.command])
-    static let syncKey = KeyCombo(key: "r", modifiers: [.command])
+    /// The shortcuts no setting rebinds. The Go menu and Settings ▸ Keys list them from here, and `routeKey`
+    /// answers them before the reading bindings.
+    static let fixedKeys: [(title: String, combo: KeyCombo, action: Selector)] = [
+        ("Back", KeyCombo(key: "[", modifiers: [.command]), #selector(historyBack(_:))),
+        ("Forward", KeyCombo(key: "]", modifiers: [.command]), #selector(historyForward(_:))),
+        ("Sync Now", KeyCombo(key: "r", modifiers: [.command]), #selector(syncNow(_:))),
+    ]
 
     /// A key the page has already found bound and outside any text control.
     private func routePageKey(_ combo: KeyCombo) {
